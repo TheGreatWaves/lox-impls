@@ -1,10 +1,19 @@
 #pragma once
 #include <vector>
 #include <iostream>
+#include <array>
 
 #include "opcode.hpp"
 #include "value.hpp"
+#include "common.hpp"
 
+// Defining aliases
+using ValueVector = std::vector<Value>;
+using LineVector = std::vector<std::size_t>;
+using CodeVector = std::vector<uint8_t>;
+
+
+// A chunk represents a "chunk" of instructions
 class Chunk
 {
 public:
@@ -38,12 +47,14 @@ public:
     /// Instructions
     /////////////////
 
+    // A simple instruction
     [[nodiscard]] std::size_t simpleInstruction(std::string_view name, std::size_t offset) noexcept
     {
         std::cout << name << '\n';
         return offset + 1;
     }
 
+    // A constant instruction (Some literal)
     [[nodiscard]] std::size_t constantInstruction(std::string_view name, std::size_t offset) noexcept
     {
         auto constant = this->code[offset + 1];
@@ -55,10 +66,12 @@ public:
     }
 
     // Disassembles the given instruction
-    [[nodiscard]] std::size_t disassembleInstruction(std::size_t offset) noexcept
+    std::size_t disassembleInstruction(std::size_t offset) noexcept
     {
         printf("%04d ", offset);
 
+        // Fancy printing, subsequent instructions which is on the
+        // same line prints | instead of the line number.
         if (offset > 0 && lines[offset] == lines[offset - 1])
         {
             std::cout << "  |  "; 
@@ -71,6 +84,8 @@ public:
         // No need for bounds checking since disassemble chunk
         // will only input valid offsets
         auto instr = static_cast<OpCode>(code[offset]);
+
+        // Switch for the instruction
         switch(instr)
         {
             case OpCode::RETURN:
@@ -87,20 +102,23 @@ public:
     // Return size of the inputs
     [[nodiscard]] constexpr std::size_t count() const noexcept { return code.size(); }
 
+
+    // Push multiple constants
     template <typename... Args>
     [[nodiscard]] std::size_t addConstant(Args &&... args) noexcept
     {
         constants.emplace_back(std::forward<Args>(args)...);
         return constants.size() - 1;
     } 
+   
+public: // Data members
 
-private:
-    using ValueVector = std::vector<Value>;
-    using LineVector = std::vector<std::size_t>;
-    using CodeVector = std::vector<uint8_t>;
-
-private: // Data members
+    // The line of instructions
     CodeVector code;
+
+    // The line numbers
     LineVector lines;
+
+    // Literals pushed
     ValueVector constants;
 };
