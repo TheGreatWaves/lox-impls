@@ -4,9 +4,14 @@ project(sugoi)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(${PROJECT_NAME}
-    src/sugoi.cpp
-)
+if(MSVC)
+    add_compile_options(/W4 /WX)
+else()
+    add_compile_options(-Wall -Wextra -pedantic -Werror)
+endif()
 
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+file(GLOB_RECURSE SOURCES src/*.cpp)
+add_executable(${PROJECT_NAME} ${SOURCES})
+
+target_include_directories(${PROJECT_NAME} 
+	PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
