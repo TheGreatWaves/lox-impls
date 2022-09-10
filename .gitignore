@@ -1,0 +1,6 @@
+# VS
+.vs/
+
+# CMake
+build/
+out/
