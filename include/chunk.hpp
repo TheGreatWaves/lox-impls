@@ -24,6 +24,12 @@ public:
         lines.push_back(line);
     }
 
+    // This probably is a bad idea
+    void write(std::size_t constant, std::size_t line) noexcept
+    {
+        write(static_cast<uint8_t>(constant), line);
+    }
+
     // Write opcode instruction to chunk
     void write(OpCode opcode, std::size_t line)
     {
@@ -88,10 +94,15 @@ public:
         // Switch for the instruction
         switch(instr)
         {
+            case OpCode::ADD:
+            case OpCode::SUBTRACT:
+            case OpCode::DIVIDE:
+            case OpCode::MULTIPLY:
+            case OpCode::NEGATE:
             case OpCode::RETURN:
-                return simpleInstruction("OP_RETURN", offset);
+                return simpleInstruction(nameof(instr), offset);
             case OpCode::CONSTANT:
-                return constantInstruction("OP_CONSTANT", offset);
+                return constantInstruction(nameof(instr), offset);
             default:
                 std::cout << "Unknown opcode " << static_cast<uint8_t>(instr) << '\n';
                 return offset + 1;

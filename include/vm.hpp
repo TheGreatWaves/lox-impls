@@ -1,6 +1,7 @@
 #pragma once
 
 #include "chunk.hpp"
+#include "compiler.hpp"
 
 // Max number of elements in the stack
 constexpr std::size_t STACK_MAX = 256;
@@ -35,11 +36,18 @@ public:
     VM() 
         : pos(0)
     {
+        resetStack();
+    }
 
+    // Interpret source
+    InterpretResult interpret(std::string_view code)
+    {
+        compile(code);
+        return InterpretResult::OK;
     }
 
     // Interpret the chunk
-    [[nodiscard]] InterpretResult interpret(Chunk* chunk) noexcept
+    [[nodiscard]] InterpretResult interpret(Chunk* chunk)
     {
         mChunk = chunk;
         this->ip = &chunk->code;
@@ -47,24 +55,116 @@ public:
     }
 
     // Run the interpreter on the chunk
-    [[nodiscard]] InterpretResult run() noexcept
+    [[nodiscard]] InterpretResult run()
     {
-        #ifdef DEBUG_TRACE_EXECUTION
-            this->mChunk->disassembleInstruction(pos);
-        #endif
-
         while(true)
         {
+            // Print instruction before executing it (debug)
+            #ifdef DEBUG_TRACE_EXECUTION
+                std::cout << "          ";
+                for (auto slot = stack.data(); slot < stackTop; ++slot)
+                {
+                    std::cout << "[ " << *slot << " ]";
+
+                }
+                std::cout << '\n';
+
+                this->mChunk->disassembleInstruction(pos);
+            #endif
+
+
+            // Exploiting macros, wrap a 'op' b into a lambda to be executed
+            #define BINARY_OP(op) \
+                do { \
+                    if (!binaryOp([](double a, double b) -> Value { return a op b; })) \
+                    { \
+                        return InterpretResult::OK; \
+                    } \
+                } while (false)
+
             auto instruction = static_cast<OpCode>(readByte());
             switch (instruction)
             {
             case OpCode::RETURN:
+                std::cout << pop() << '\n';
                 return InterpretResult::OK;
-            case OpCode::CONSTANT:
-                auto constant = readConstant();
-                std::cout << constant << '\n';
+            case OpCode::NEGATE:
+            {
+                try
+                {
+                    auto tryNegate = -std::get<double>(peek());
+                    pop();
+                    push(tryNegate);
+                }
+                catch(const std::bad_variant_access&)
+                {
+                    throw("Operand must be a number.");
+                    return InterpretResult::RUNTIME_ERROR;
+                }
                 break;
             }
+            case OpCode::CONSTANT:
+            {
+                auto constant = readConstant();
+                push(constant);
+                break;
+            }
+            case OpCode::ADD:       BINARY_OP(+); break;
+            case OpCode::SUBTRACT:  BINARY_OP(-); break;
+            case OpCode::DIVIDE:    BINARY_OP(/); break;
+            case OpCode::MULTIPLY:  BINARY_OP(*); break;
+            }
+        }
+        #undef BINARY_OP
+    }
+
+    // Stack related methods
+
+    void resetStack() noexcept
+    {
+        // Reset the pointer
+        stackTop = stack.data();
+    }
+
+    void push(Value value) noexcept
+    {
+        // Dereference and assign
+        *stackTop = std::move(value);
+        ++stackTop;
+    }
+
+    Value pop() noexcept
+    {
+        // Decrement and return 
+        --stackTop;
+        return *stackTop;
+    }
+
+    [[nodiscard]] const Value& peek(std::size_t offset = 0) const
+    {
+        return stackTop[-1 - offset];
+    }
+
+private:
+
+    // F will be a lambda function
+    template <typename F>
+    bool binaryOp(F op)
+    {
+        try
+        {
+            auto a = std::get<double>(peek());
+            auto b = std::get<double>(peek(1));
+
+            pop();
+            pop();
+            push(op(a, b));
+            return true;
+        }
+        catch(const std::bad_variant_access&)
+        {
+            throw("Operands must be numbers.");
+            return false;
         }
     }
 
