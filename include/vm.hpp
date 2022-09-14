@@ -77,7 +77,6 @@ public:
                 this->mChunk->disassembleInstruction(pos);
             #endif
 
-
             // Exploiting macros, wrap a 'op' b into a lambda to be executed
             #define BINARY_OP(op) \
                 do { \
@@ -87,6 +86,8 @@ public:
                     } \
                 } while (false)
 
+
+        
             auto instruction = static_cast<OpCode>(readByte());
             switch (instruction)
             {
@@ -180,6 +181,6 @@ private:
     std::size_t                     pos;                    // Position in the code
     std::array<Value, STACK_MAX>    stack;                  
     Value*                          stackTop = nullptr;
-    
+
     Compilation                     cu;
 };

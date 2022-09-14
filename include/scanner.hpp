@@ -233,13 +233,17 @@ public:
 
     [[nodiscard]] Token scanToken() noexcept
     {
+        skipWhiteSpace();
         start = current;
 
         if (isAtEnd()) return makeToken(TokenType::Eof);
 
         auto c = advance();
 
-        if (std::isdigit(c)) return number(); 
+        if (std::isdigit(c))
+        {
+            return number(); 
+        }
         if (std::isalpha(c)) return identifier();
 
         switch (c) 
