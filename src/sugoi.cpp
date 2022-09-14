@@ -17,7 +17,7 @@ void repl(VM& vm)
         }
 
         vm;
-        //vm.interpret(line);
+        vm.interpret(line);
         // Flush
         line.clear();
     }

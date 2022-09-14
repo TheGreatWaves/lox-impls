@@ -42,8 +42,13 @@ public:
     // Interpret source
     InterpretResult interpret(std::string_view code)
     {
-        compile(code);
-        return InterpretResult::OK;
+        Chunk chunk;
+
+        if (!cu.compile(code, chunk))
+        {
+            return InterpretResult::COMPILE_ERROR;
+        }
+        return run();
     }
 
     // Interpret the chunk
@@ -175,4 +180,6 @@ private:
     std::size_t                     pos;                    // Position in the code
     std::array<Value, STACK_MAX>    stack;                  
     Value*                          stackTop = nullptr;
+    
+    Compilation                     cu;
 };

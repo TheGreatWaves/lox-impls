@@ -52,22 +52,27 @@ private:
 private: // Methods
     [[nodiscard]] bool isAtEnd() const noexcept { return current == source.length(); }
 
-    [[nodiscard]] Token errorToken(std::string_view message)const noexcept
+    [[nodiscard]] Token errorToken(std::string_view message) const noexcept
     {
         return Token(TokenType::Error, message, line);
     }
-	[[nodiscard]] Token makeToken(TokenType type)const noexcept
+
+    // Create token of the specified type,
+    // the string will automatically be assigned
+	[[nodiscard]] Token makeToken(TokenType type) const noexcept
     {
         std::size_t length = current - start;
         return Token(type, source.substr(start, length), line);
     }
 
+    // Advances and returns the previous value
     char advance() noexcept
     {
         ++current;
         return source[current-1];
     }
 
+    // Returns true if the current character matches the expected char
     [[nodiscard]] bool match(char expected)
     {
         if (isAtEnd() || source.at(current) != expected) return false;
@@ -75,12 +80,15 @@ private: // Methods
         return true;
     }
 
+    // read value without advancing
+    // default to 0 to peek at current character
     char peek(std::size_t offset = 0) const noexcept
     {
         if (current + offset >= source.length()) return '\0'; 
         return source[current + offset];
     }
 
+    // Advance and skip all whitespace
     void skipWhiteSpace() noexcept
     {
         while (true)
@@ -115,6 +123,8 @@ private: // Methods
         }
     }
 
+
+    // Create string token, scans from opening '"' to ending
     [[nodiscard]] Token string() noexcept
     {
         while (peek() != '"' && !isAtEnd())
@@ -147,8 +157,63 @@ private: // Methods
         return makeToken(TokenType::Number);
     }
 
+    // Check the rest of the current word and return the 
+    // expected token type if string matches a reserved keyword
+    [[nodiscard]] TokenType checkKeyword(size_t begin, std::string_view rest, TokenType type) noexcept
+    {
+        size_t wordLength = current - start; // Current word length
+        auto restLength = rest.length();
+
+        // Makesure the word length matches and the string matches
+        if (wordLength == begin + restLength
+            && source.substr(start + begin, restLength) == rest)
+        {
+            // If it does, speicified type is returned (reserved keyword)
+            return type;
+        }
+        // Otherwise, it's an identifier
+        return TokenType::Identifier;
+    }
+
     [[nodiscard]] TokenType identiferType()
     {
+        switch(source[start])
+        {
+            case 'a': return checkKeyword(1, "nd", TokenType::And);
+            case 'c': return checkKeyword(1, "lass", TokenType::And);
+            case 'e': return checkKeyword(1, "lse", TokenType::Else);
+            case 'i': return checkKeyword(1, "f", TokenType::If);
+            case 'n': return checkKeyword(1, "il", TokenType::Nil);
+            case 'o': return checkKeyword(1, "r", TokenType::Or);
+            case 'p': return checkKeyword(1, "rint", TokenType::Print);
+            case 'r': return checkKeyword(1, "eturn", TokenType::Return);
+            case 's': return checkKeyword(1, "uper", TokenType::Super);
+            case 'v': return checkKeyword(1, "ar", TokenType::Var);
+            case 'w': return checkKeyword(1, "hile", TokenType::While);
+            case 'f':
+                if (current - start > 1)
+                {
+                    switch (source[start + 1])
+                    {
+                        case 'a': return checkKeyword(2, "lse", TokenType::False);
+                        case 'o': return checkKeyword(2, "r", TokenType::For);
+                        case 'u': return checkKeyword(2, "n", TokenType::Fun); 
+                    }
+                }
+                break;
+            default:
+                break;
+            case 't':
+                if (current - start > 1)
+                {
+                    switch (source[start + 1])
+                    {
+                        case 'h': return checkKeyword(2, "is", TokenType::This);
+                        case 'r': return checkKeyword(2, "ue", TokenType::True);
+                    }
+                }
+                break;
+        }
         return TokenType::Identifier;
     }
 
@@ -161,7 +226,7 @@ private: // Methods
 
 public:
     // Constructor
-    explicit Scanner(std::string_view pSource) noexcept
+    constexpr explicit Scanner(std::string_view pSource) noexcept
         : source( pSource )
     {}
 
