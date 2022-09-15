@@ -31,7 +31,7 @@ enum class Precedence : uint8_t
     Primary,
 };
 
-using ParseFn = std::function<void()>;
+using ParseFn = std::function<void(bool canAssign)>;
 struct ParseRule
 {
     ParseFn prefix;
@@ -55,10 +55,10 @@ struct Parser
   
     void advance() noexcept
     {
-        // Store the current token
+        // Store the current token.
         previous = current;
 
-        // If valid simply reuturn, else output error and scan next
+        // If valid simply return, else output error and scan next.
         while(true)
         {
             current = scanner.scanToken();
@@ -69,6 +69,9 @@ struct Parser
 
     void consume(TokenType type, std::string_view message) noexcept
     {
+        // If the current token's type
+        // is the expected tpye,
+        // consume it and return.
         if (current.type == type)
         {
             advance();
@@ -79,6 +82,8 @@ struct Parser
         errorAtCurrent(*this, message);
     }
 
+    // Check the current token's type
+    // returns true if it is of expected type.
     [[nodiscard]] bool check(TokenType type) const noexcept
     {
         return current.type == type;
@@ -173,12 +178,53 @@ struct Compilation
         #endif
     }
 
+    // Error sychronization -
+    // If we hit a compile-error parsing the
+    // previous statement, we enter panic mode.
+    // When that happens, after the statement 
+    // we start synchronizing.
+    void synchronize()
+    {
+        // Reset flag.
+        parser->panicMode = false;
+
+        // Skip tokens indiscriminately, until we reach
+        // something that looks like a statement boundary.
+        // Like a preceding semi-colon (;) or subsquent
+        // token which begins a new statement, usually
+        // a control flow or declaration keywords.
+        while (parser->current.type != TokenType::Eof)
+        {
+            // Preceding semi-colon.
+            if (parser->previous.type == TokenType::Semicolon) return;
+
+            // If it is one of the keywords listed, we stop.
+            switch(parser->current.type)
+            {
+                case TokenType::Class:
+                case TokenType::Fun:
+                case TokenType::Var:
+                case TokenType::For:
+                case TokenType::If:
+                case TokenType::While:
+                case TokenType::Print:
+                case TokenType::Return:
+                    return;
+                default:
+                    ;   // Nothing
+            }
+            
+            // No conditions met, keep advancing.
+            parser->advance();
+        }
+    }
+
     void emitReturn() 
     {
         emitByte(OpCode::RETURN);
     }
 
-    void emitBytes(uint8_t byte1, uint8_t byte2)
+    void emitByte(uint8_t byte1, uint8_t byte2)
     {
         emitByte(byte1);
         emitByte(byte2);
@@ -197,9 +243,63 @@ struct Compilation
         parsePrecedence(Precedence::Assignment);
     }
 
+    // Variable declaration (A 'var' token found)
+    void varDeclaration()
+    {
+        // Parse the variable name.
+        auto global = parseVariable("Expect variable name.");
+
+        if (match(TokenType::Equal))
+        {
+            // If there is an equal token,
+            // evaluate the follwing
+            // expression. The result
+            // of the evaluation will
+            // be the assigned value.
+            expression();
+        }
+        else
+        {
+            // The expression is declared,
+            // but uninitialized, implicitly
+            // init to nil.
+            emitByte(OpCode::NIL);
+        }
+
+        // We expect statements to be 
+        // terminated with a semi-colon
+        // Consume the final token to 
+        // finalize the statement.
+        parser->consume(TokenType::Semicolon, "Expect ';' after variable declaration.");
+
+        // Define the variable.
+        defineVariable(global);
+    }
+
+    void expressionStatement()
+    {
+        expression();
+        parser->consume(TokenType::Semicolon, "Expect ';' after expression.");
+        emitByte(OpCode::POP);
+    }
+
+    // Declaring statements or variables.
     void declaration()
     {
-        statement();
+        // Match variable token.
+        if (match(TokenType::Var))
+        {
+            varDeclaration();
+        }
+        else 
+        {
+            // If it isn't a variable
+            // it must be a statement.
+            statement();
+        }
+        
+        // Synchronize error after compile-error
+        if (parser->panicMode) synchronize();
     }
 
     void statement()
@@ -207,6 +307,13 @@ struct Compilation
         if (match(TokenType::Print))
         {
             printStatement();
+        }
+        // We're not looking at print,
+        // we must be looking at an
+        // expression statement.
+        else
+        {
+            expressionStatement();
         }
     }
 
@@ -217,6 +324,8 @@ struct Compilation
         emitByte(OpCode::PRINT);
     }
     
+    // Check if current token matches the current token,
+    // if it does, consume it.
     [[nodiscard]] bool match(TokenType type) noexcept
     {
         // If the current token is not the expected type
@@ -228,7 +337,7 @@ struct Compilation
         return true;
     }
 
-    void number() noexcept
+    void number(bool) noexcept
     {
         Value value = std::stod(std::string(parser->previous.text));
         emitConstant(value);
@@ -236,10 +345,10 @@ struct Compilation
 
     void emitConstant(Value value) noexcept
     {
-        emitBytes(static_cast<uint8_t>(OpCode::CONSTANT), makeConstant(value));
+        emitByte(static_cast<uint8_t>(OpCode::CONSTANT), makeConstant(value));
     }
 
-    [[nodiscard]] uint8_t makeConstant(Value value)
+    [[nodiscard]] uint8_t makeConstant(Value value) noexcept
     {
         int constant = currentChunk().addConstant(value);
         if (constant > UINT8_COUNT)
@@ -251,13 +360,13 @@ struct Compilation
         return static_cast<uint8_t>(constant);
     }
 
-    void grouping() noexcept
+    void grouping(bool) noexcept
     {
         expression();
         parser->consume(TokenType::RightParen, "Expect ')' after expression.");
     }
 
-    void unary()
+    void unary(bool)
     {
         // Remember the operator
         auto operatorType = parser->previous.type;
@@ -274,7 +383,7 @@ struct Compilation
         }
     }
 
-    void binary()
+    void binary(bool)
     {
         // Remember the operator
         auto operatorType = parser->previous.type;
@@ -300,7 +409,7 @@ struct Compilation
         }
     }
 
-    void literal()
+    void literal(bool)
     {
         switch(parser->previous.type)
         {
@@ -311,7 +420,7 @@ struct Compilation
         }
     }
 
-    void string()
+    void string(bool)
     {
         // Retrive the text in the form: "str"
         auto str = parser->previous.text;
@@ -324,6 +433,32 @@ struct Compilation
         emitConstant(std::string(str));
     }
 
+    void variable(bool canAssign)
+    {
+        namedVariable(canAssign);
+    }
+
+
+    void namedVariable(bool canAssign)
+    {
+        auto arg = identifierConstant();
+
+        // Indiciates that the variable is
+        // calling for a setter/ assignment.
+        if (canAssign && match(TokenType::Equal))
+        {
+            // Evaluate the expression (on the right).
+            expression();
+
+            // Link variable name to it in the map.
+            emitByte(static_cast<uint8_t>(OpCode::SET_GLOBAL), arg);
+        }
+        else
+        {
+            // Calls for getter / access.
+            emitByte(static_cast<uint8_t>(OpCode::GET_GLOBAL), arg);
+        }
+    }
 
     // Precedence
     void parsePrecedence(Precedence precedence)
@@ -340,25 +475,49 @@ struct Compilation
         }
 
         // Invoke function
-       prefixRule();
+        bool canAssign = precedence <= Precedence::Assignment;
+        prefixRule(canAssign);
 
         while (precedence <= getRule(parser->current.type).precedence)
         {
             parser->advance();
             ParseFn infixRule = getRule(parser->previous.type).infix;
-            infixRule();
+            infixRule(canAssign);
         }
+
+        if (canAssign && match(TokenType::Equal))
+        {
+            error(*this->parser, "Invalid assignment target.");
+        }
+    }
+
+    [[nodiscard]] uint8_t identifierConstant() noexcept
+    {
+        return makeConstant({std::string(parser->previous.text)});
+    }
+
+    // Parses the variable
+    [[nodiscard]] uint8_t parseVariable(std::string_view message) noexcept
+    {
+        parser->consume(TokenType::Identifier, message);
+        return identifierConstant();
+    }
+
+    void defineVariable(uint8_t global)
+    {
+        emitByte(static_cast<uint8_t>(OpCode::DEFINE_GLOBAL), global);
     }
 
     // get rule
     [[nodiscard]] const ParseRule& getRule(TokenType type) noexcept
     {
-        auto grouping = [this]() { this->grouping(); };
-        auto unary = [this]() { this->unary(); };
-        auto binary = [this]() { this->binary(); };
-        auto number = [this]() { this->number(); };
-        auto literal = [this]() { this->literal(); };
-        auto string = [this] () { this->string(); };
+        auto grouping = [this](bool canAssign) { this->grouping(canAssign); };
+        auto unary = [this](bool canAssign) { this->unary(canAssign); };
+        auto binary = [this](bool canAssign) { this->binary(canAssign); };
+        auto number = [this](bool canAssign) { this->number(canAssign); };
+        auto literal = [this](bool canAssign) { this->literal(canAssign); };
+        auto string = [this](bool canAssign) { this->string(canAssign); };
+        auto variable = [this](bool canAssign) { this->variable(canAssign); };
         
         static ParseRule rls[] = 
         {
@@ -381,7 +540,7 @@ struct Compilation
             {nullptr,       binary,     Precedence::Comparison},// TokenType::GREATER_EQUAL
             {nullptr,       binary,     Precedence::Comparison},// TokenType::LESS
             {nullptr,       binary,     Precedence::Comparison},// TokenType::LESS_EQUAL
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::IDENTIFIER
+            {variable,      nullptr,    Precedence::None},      // TokenType::IDENTIFIER
             {string,        nullptr,    Precedence::None},      // TokenType::STRING
             {number,        nullptr,    Precedence::None},      // TokenType::NUMBER
             {nullptr,       nullptr,    Precedence::None},      // TokenType::AND

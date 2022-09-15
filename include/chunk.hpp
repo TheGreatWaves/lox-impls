@@ -118,6 +118,9 @@ public:
             case OpCode::PRINT:
                 return simpleInstruction(nameof(instr), offset);
             case OpCode::CONSTANT:
+            case OpCode::DEFINE_GLOBAL:
+            case OpCode::GET_GLOBAL:
+            case OpCode::SET_GLOBAL:
                 return constantInstruction(nameof(instr), offset);
             default:
                 std::cout << "Unknown opcode " << static_cast<uint8_t>(instr) << '\n';

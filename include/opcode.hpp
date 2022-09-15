@@ -13,6 +13,15 @@ enum class OpCode : uint8_t
     TRUE,
     FALSE,
 
+    // Pop value off stack, for evaluating expr
+    POP,
+
+    // 1. Define global variable
+    // 2. Get global variable
+    DEFINE_GLOBAL,
+    GET_GLOBAL,
+    SET_GLOBAL,
+
     // Value comparison ops
     EQUAL,
     GREATER,
@@ -24,6 +33,7 @@ enum class OpCode : uint8_t
     MULTIPLY,
     DIVIDE,
 
+    // Unary ops
     NEGATE,
     NOT,
 
@@ -52,6 +62,9 @@ enum class OpCode : uint8_t
         case OpCode::GREATER:   return "OP_GREATER";
         case OpCode::LESS:      return "OP_LESS";
         case OpCode::PRINT:     return "OP_PRINT";
+        case OpCode::POP:       return "OP_POP";
+        case OpCode::DEFINE_GLOBAL: return "OP_DEFINE_GLOBAL";
+        case OpCode::GET_GLOBAL: return "OP_GET_GLOBAL";
         default:                throw std::invalid_argument("UNEXPECTED OUTPUT");
     }
 }

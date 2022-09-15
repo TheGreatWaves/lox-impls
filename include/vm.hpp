@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_map>
+
 #include "chunk.hpp"
 #include "compiler.hpp"
 
@@ -22,6 +24,8 @@ class VM
 {
 
 private:
+    // Read methods
+
     // Returns the current byte and increments position
     [[nodiscard]] uint8_t readByte() noexcept
     {
@@ -29,11 +33,16 @@ private:
     }
 
     // Returns the current constant stored at the byte
-    [[nodiscard]] Value readConstant() noexcept
+    [[nodiscard]] Value& readConstant() noexcept
     {
         return this->mChunk->constants.at(readByte());
     }
     
+    [[nodiscard]] std::string& readString() noexcept
+    {
+        return std::get<std::string>(readConstant());
+    }
+
 public:
     // Constructor
     VM() 
@@ -67,6 +76,12 @@ public:
     {
         while(true)
         {
+
+            // Useful lambdas
+
+
+
+
             // Print instruction before executing it (debug)
             #ifdef DEBUG_TRACE_EXECUTION
                 std::cout << "          ";
@@ -166,6 +181,61 @@ public:
             case OpCode::NIL:       push(std::monostate()); break;
             case OpCode::TRUE:      push(true); break;
             case OpCode::FALSE:     push(false); break;
+            case OpCode::POP:       pop(); break;
+            case OpCode::GET_GLOBAL:
+            {
+                auto name = readString();
+
+                if (auto found = globals.find(name); found == globals.end())
+                {
+                    // Not found - Variable undefined.
+                    runTimeError("Undefined variable '", name.c_str(), "'.");
+                    return InterpretResult::RUNTIME_ERROR;
+                }
+                else
+                {
+                    // Variable constant 
+                    // found, push it.
+                    push(found->second);
+                }
+          
+                break;
+            }
+            case OpCode::DEFINE_GLOBAL:
+            {
+                // This will definitely be a
+                // string because prior functions
+                // which calls it will never
+                // emit an instruction that 
+                // refers to a non string constant.
+                auto name = readString();
+
+                // Assign the global variable 
+                // name with the value
+                globals[name] = peek();
+
+                // Pop the value off the stack
+                // it does not matter anymore
+                pop();
+                break;
+            }
+            case OpCode::SET_GLOBAL:
+            {
+                auto name = readString();
+
+                if (auto found = globals.find(name); found == globals.end())
+                {
+                    // Not found - Variable undefined.
+                    runTimeError("Undefined variable '", name.c_str(), "'.");
+                    return InterpretResult::RUNTIME_ERROR;
+                }
+                else
+                {
+                    // Variable found, reassign the value
+                    found->second = peek(0);    
+                }
+                break;
+            }
             case OpCode::EQUAL:
             {
                 const auto& a = pop();
@@ -237,9 +307,7 @@ private:
         try
         {
             auto a = std::get<double>(peek());
-            std::cout << '<' << a << '>';
             auto b = std::get<double>(peek(1));
-            std::cout << '<' << b << '>' << '\n';
             pop();
             pop();
             push(op(a, b));
@@ -276,4 +344,6 @@ private:
     Value*                          stackTop = nullptr;
 
     Compilation                     cu;
+
+    std::unordered_map<std::string, Value> globals; // Global variables;
 };
