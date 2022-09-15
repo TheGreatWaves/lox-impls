@@ -2,12 +2,13 @@
 #include <variant>
 
 // A value is simply a variant
-using Value = std::variant<double, bool>;
+using Value = std::variant<double, bool, std::monostate>;
 
 // Defined and overloaded for std::visit
 struct OutputVisitor {
     void operator()(const double d) const { std::cout << d; }
     void operator()(const bool b) const { std::cout << (b ? "true" : "false"); }
+    void operator()(const std::monostate) const { std::cout << "nil"; }
 };
 
 

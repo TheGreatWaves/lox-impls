@@ -176,6 +176,12 @@ struct Compilation
         emitByte(byte2);
     }
 
+    void emitByte(OpCode byte1, OpCode byte2)
+    {
+        emitByte(byte1);
+        emitByte(byte2);
+    }
+
     // Expressions
 
     void expression()
@@ -223,7 +229,8 @@ struct Compilation
         // Emit the operator instruction
         switch(operatorType)
         {
-            case TokenType::Minus: emitByte(OpCode::NEGATE); break;
+            case TokenType::Minus:  emitByte(OpCode::NEGATE); break;
+            case TokenType::Bang:   emitByte(OpCode::NOT); break;
             default: return; // Unreachable
         }
     }
@@ -239,10 +246,28 @@ struct Compilation
         // Emit the corresponding opcode
         switch (operatorType)
         {
-            case TokenType::Plus: emitByte(OpCode::ADD); break;
-            case TokenType::Minus: emitByte(OpCode::SUBTRACT); break;
-            case TokenType::Star: emitByte(OpCode::MULTIPLY); break;
-            case TokenType::Slash: emitByte(OpCode::DIVIDE); break;
+            case TokenType::BangEqual:      emitByte(OpCode::EQUAL, OpCode::NOT); break;
+            case TokenType::EqualEqual:     emitByte(OpCode::EQUAL); break;
+            case TokenType::Greater:        emitByte(OpCode::GREATER); break;
+            case TokenType::GreaterEqual:   emitByte(OpCode::LESS, OpCode::NOT); break;
+            case TokenType::Less:           emitByte(OpCode::LESS); break;
+            case TokenType::LessEqual:      emitByte(OpCode::GREATER, OpCode::NOT); break;
+
+            case TokenType::Plus:           emitByte(OpCode::ADD); break;
+            case TokenType::Minus:          emitByte(OpCode::SUBTRACT); break;
+            case TokenType::Star:           emitByte(OpCode::MULTIPLY); break;
+            case TokenType::Slash:          emitByte(OpCode::DIVIDE); break;
+            default: return; // Unreachable
+        }
+    }
+
+    void literal()
+    {
+        switch(parser->previous.type)
+        {
+            case TokenType::False: emitByte(OpCode::FALSE); break;
+            case TokenType::Nil: emitByte(OpCode::NIL); break;
+            case TokenType::True: emitByte(OpCode::TRUE); break;
             default: return; // Unreachable
         }
     }
@@ -280,10 +305,11 @@ struct Compilation
         auto unary = [this]() { this->unary(); };
         auto binary = [this]() { this->binary(); };
         auto number = [this]() { this->number(); };
+        auto literal = [this]() { this->literal(); };
         
         static ParseRule rls[] = 
         {
-            {grouping,       nullptr,    Precedence::None},      // TokenType::LEFT_PAREN
+            {grouping,       nullptr,    Precedence::None},     // TokenType::LEFT_PAREN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::RIGHT_PAREN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::LEFT_BRACE
             {nullptr,       nullptr,    Precedence::None},      // TokenType::RIGHT_BRACE
@@ -294,31 +320,31 @@ struct Compilation
             {nullptr,       nullptr,    Precedence::None},      // TokenType::SEMICOLON
             {nullptr,       binary,     Precedence::Factor},    // TokenType::SLASH
             {nullptr,       binary,     Precedence::Factor},    // TokenType::STAR
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::BANG
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::BANG_EQUAL
+            {unary,         nullptr,    Precedence::None},      // TokenType::BANG
+            {nullptr,       binary,     Precedence::Equality},  // TokenType::BANG_EQUAL
             {nullptr,       nullptr,    Precedence::None},      // TokenType::EQUAL
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::EQUAL_EQUAL
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::GREATER
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::GREATER_EQUAL
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::LESS
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::LESS_EQUAL
+            {nullptr,       binary,     Precedence::Equality},  // TokenType::EQUAL_EQUAL
+            {nullptr,       binary,     Precedence::Comparison},// TokenType::GREATER
+            {nullptr,       binary,     Precedence::Comparison},// TokenType::GREATER_EQUAL
+            {nullptr,       binary,     Precedence::Comparison},// TokenType::LESS
+            {nullptr,       binary,     Precedence::Comparison},// TokenType::LESS_EQUAL
             {nullptr,       nullptr,    Precedence::None},      // TokenType::IDENTIFIER
             {nullptr,       nullptr,    Precedence::None},      // TokenType::STRING
             {number,        nullptr,    Precedence::None},      // TokenType::NUMBER
             {nullptr,       nullptr,    Precedence::None},      // TokenType::AND
             {nullptr,       nullptr,    Precedence::None},      // TokenType::CLASS
             {nullptr,       nullptr,    Precedence::None},      // TokenType::ELSE
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::FALSE
+            {literal,       nullptr,    Precedence::None},      // TokenType::FALSE
             {nullptr,       nullptr,    Precedence::None},      // TokenType::FOR
             {nullptr,       nullptr,    Precedence::None},      // TokenType::FUN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::IF
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::NIL
+            {literal,       nullptr,    Precedence::None},      // TokenType::NIL
             {nullptr,       nullptr,    Precedence::None},      // TokenType::OR
             {nullptr,       nullptr,    Precedence::None},      // TokenType::PRINT
             {nullptr,       nullptr,    Precedence::None},      // TokenType::RETURN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::SUPER
             {nullptr,       nullptr,    Precedence::None},      // TokenType::THIS
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::TRUE
+            {literal,       nullptr,    Precedence::None},      // TokenType::TRUE
             {nullptr,       nullptr,    Precedence::None},      // TokenType::VAR
             {nullptr,       nullptr,    Precedence::None},      // TokenType::WHILE
             {nullptr,       nullptr,    Precedence::None},      // TokenType::ERROR

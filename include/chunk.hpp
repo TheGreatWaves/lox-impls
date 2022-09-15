@@ -100,6 +100,13 @@ public:
             case OpCode::MULTIPLY:
             case OpCode::NEGATE:
             case OpCode::RETURN:
+            case OpCode::NIL:
+            case OpCode::TRUE:
+            case OpCode::FALSE:
+            case OpCode::NOT:
+            case OpCode::EQUAL:
+            case OpCode::GREATER:
+            case OpCode::LESS:
                 return simpleInstruction(nameof(instr), offset);
             case OpCode::CONSTANT:
                 return constantInstruction(nameof(instr), offset);

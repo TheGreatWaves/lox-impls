@@ -82,7 +82,7 @@ public:
                 do { \
                     if (!binaryOp([](double a, double b) -> Value { return a op b; })) \
                     { \
-                        return InterpretResult::OK; \
+                        return InterpretResult::COMPILE_ERROR; \
                     } \
                 } while (false)
 
@@ -94,6 +94,15 @@ public:
             case OpCode::RETURN:
                 std::cout << pop() << '\n';
                 return InterpretResult::OK;
+            case OpCode::ADD:       BINARY_OP(+); break;
+            case OpCode::SUBTRACT:  BINARY_OP(-); break;
+            case OpCode::DIVIDE:    BINARY_OP(/); break;
+            case OpCode::MULTIPLY:  BINARY_OP(*); break;
+            case OpCode::NOT:       
+            {
+                push(isFalsey(pop()));
+                break;
+            }
             case OpCode::NEGATE:
             {
                 try
@@ -102,9 +111,9 @@ public:
                     pop();
                     push(tryNegate);
                 }
-                catch(const std::bad_variant_access&)
+                catch(const std::exception&)
                 {
-                    throw("Operand must be a number.");
+                    runTimeError("Operand must be a number.");
                     return InterpretResult::RUNTIME_ERROR;
                 }
                 break;
@@ -115,11 +124,21 @@ public:
                 push(constant);
                 break;
             }
-            case OpCode::ADD:       BINARY_OP(+); break;
-            case OpCode::SUBTRACT:  BINARY_OP(-); break;
-            case OpCode::DIVIDE:    BINARY_OP(/); break;
-            case OpCode::MULTIPLY:  BINARY_OP(*); break;
+            case OpCode::NIL:       push(std::monostate()); break;
+            case OpCode::TRUE:      push(true); break;
+            case OpCode::FALSE:     push(false); break;
+            case OpCode::EQUAL:
+            {
+                const auto& a = pop();
+                const auto& b = pop();
+                push(a == b);
+                break;
             }
+            case OpCode::GREATER:   BINARY_OP(>); break;
+            case OpCode::LESS:      BINARY_OP(<); break;
+
+            }
+            
         }
         #undef BINARY_OP
     }
@@ -153,9 +172,24 @@ public:
 
 private:
 
+    struct FalseyVistor
+    {
+        bool operator()(const bool b) const noexcept { return !b; }
+        bool operator()(const std::monostate) const noexcept { return true; }
+
+        // Handles any other case as true
+        template <typename T>
+        bool operator()(const T) const noexcept { return true; }
+    };
+
+    bool isFalsey(const Value& value) const
+    {
+        return std::visit(FalseyVistor(), value); 
+    }
+
     // F will be a lambda function
-    template <typename F>
-    bool binaryOp(F op)
+    template <typename Fn>
+    bool binaryOp(Fn op)
     {
         try
         {
@@ -167,11 +201,26 @@ private:
             push(op(a, b));
             return true;
         }
-        catch(const std::bad_variant_access&)
+        catch(const std::exception&)
         {
-            throw("Operands must be numbers.");
+            runTimeError("Operands must be numbers.");
             return false;
         }
+    }
+
+    // Error
+    // Referenced from pksensei
+    template <typename... Args>
+    void runTimeError(Args&&... args)
+    {
+        (std::cerr << ... << std::forward<Args>(args));
+        std::cerr << '\n';
+
+       
+        const auto instruction = (*ip)[pos] - 1;
+        const auto line = mChunk->lines[instruction];
+        std::cerr << "[line " << line << "] in script\n";
+        resetStack();
     }
 
 private:
