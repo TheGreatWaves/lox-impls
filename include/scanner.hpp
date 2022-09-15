@@ -85,7 +85,7 @@ private: // Methods
     char peek(std::size_t offset = 0) const noexcept
     {
         if (current + offset >= source.length()) return '\0'; 
-        return source[current + offset];
+        return source.at(current + offset);
     }
 
     // Advance and skip all whitespace
@@ -177,7 +177,7 @@ private: // Methods
 
     [[nodiscard]] TokenType identiferType()
     {
-        switch(source[start])
+        switch(source.at(start))
         {
             case 'a': return checkKeyword(1, "nd", TokenType::And);
             case 'c': return checkKeyword(1, "lass", TokenType::And);
@@ -193,7 +193,7 @@ private: // Methods
             case 'f':
                 if (current - start > 1)
                 {
-                    switch (source[start + 1])
+                    switch (source.at(start + 1))
                     {
                         case 'a': return checkKeyword(2, "lse", TokenType::False);
                         case 'o': return checkKeyword(2, "r", TokenType::For);
@@ -206,7 +206,7 @@ private: // Methods
             case 't':
                 if (current - start > 1)
                 {
-                    switch (source[start + 1])
+                    switch (source.at(start + 1))
                     {
                         case 'h': return checkKeyword(2, "is", TokenType::This);
                         case 'r': return checkKeyword(2, "ue", TokenType::True);

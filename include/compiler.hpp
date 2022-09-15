@@ -75,10 +75,14 @@ struct Parser
             return;
         }
 
-        // Type wasn't expected, output error
+        // Type wasn't expected, output error.
         errorAtCurrent(*this, message);
     }
 
+    [[nodiscard]] bool check(TokenType type) const noexcept
+    {
+        return current.type == type;
+    }
 
 };
 
@@ -142,13 +146,17 @@ struct Compilation
     bool compile(std::string_view code, Chunk& chunk) 
     {
         // Setup
-        parser = std::make_unique<Parser>(code);
+        this->parser = std::make_unique<Parser>(code);
         compiler.compilingChunk = &chunk;
 
         // Compiling
         parser->advance();
-        expression();
-        parser->consume(TokenType::Eof, "Expected end of expression.");
+
+
+        while (!match(TokenType::Eof))
+        {
+            declaration();
+        }
         
         endCompiler();
         return !parser->hadError;
@@ -188,7 +196,38 @@ struct Compilation
     {
         parsePrecedence(Precedence::Assignment);
     }
+
+    void declaration()
+    {
+        statement();
+    }
+
+    void statement()
+    {
+        if (match(TokenType::Print))
+        {
+            printStatement();
+        }
+    }
+
+    void printStatement() noexcept
+    {
+        expression();
+        parser->consume(TokenType::Semicolon, "Expected ';' after value.");
+        emitByte(OpCode::PRINT);
+    }
     
+    [[nodiscard]] bool match(TokenType type) noexcept
+    {
+        // If the current token is not the expected type
+        // return false.
+        if (!parser->check(type)) return false;
+        
+        // If it was expected, consume it.
+        parser->advance();
+        return true;
+    }
+
     void number() noexcept
     {
         Value value = std::stod(std::string(parser->previous.text));
@@ -272,6 +311,19 @@ struct Compilation
         }
     }
 
+    void string()
+    {
+        // Retrive the text in the form: "str"
+        auto str = parser->previous.text;
+
+        // Get rid of quotation marks
+        str.remove_prefix(1);
+        str.remove_suffix(1);
+
+        // Construct string object
+        emitConstant(std::string(str));
+    }
+
 
     // Precedence
     void parsePrecedence(Precedence precedence)
@@ -306,6 +358,7 @@ struct Compilation
         auto binary = [this]() { this->binary(); };
         auto number = [this]() { this->number(); };
         auto literal = [this]() { this->literal(); };
+        auto string = [this] () { this->string(); };
         
         static ParseRule rls[] = 
         {
@@ -329,7 +382,7 @@ struct Compilation
             {nullptr,       binary,     Precedence::Comparison},// TokenType::LESS
             {nullptr,       binary,     Precedence::Comparison},// TokenType::LESS_EQUAL
             {nullptr,       nullptr,    Precedence::None},      // TokenType::IDENTIFIER
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::STRING
+            {string,        nullptr,    Precedence::None},      // TokenType::STRING
             {number,        nullptr,    Precedence::None},      // TokenType::NUMBER
             {nullptr,       nullptr,    Precedence::None},      // TokenType::AND
             {nullptr,       nullptr,    Precedence::None},      // TokenType::CLASS

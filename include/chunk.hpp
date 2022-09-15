@@ -78,18 +78,26 @@ public:
 
         // Fancy printing, subsequent instructions which is on the
         // same line prints | instead of the line number.
-        if (offset > 0 && lines[offset] == lines[offset - 1])
+        if (offset > 0)
         {
-            std::cout << "  |  "; 
+           
+            assert(offset < lines.size());
+            if (lines.at(offset) == lines.at(offset - 1))
+            {
+                std::cout << "  |  "; 
+            }  
         } 
         else
         {
-            printf("%04d ", lines[offset]);
+            printf("%04d ", lines.at(offset));
         }
 
         // No need for bounds checking since disassemble chunk
         // will only input valid offsets
-        auto instr = static_cast<OpCode>(code[offset]);
+        auto instr = static_cast<OpCode>(code.at(offset));
+
+
+       
 
         // Switch for the instruction
         switch(instr)
@@ -107,6 +115,7 @@ public:
             case OpCode::EQUAL:
             case OpCode::GREATER:
             case OpCode::LESS:
+            case OpCode::PRINT:
                 return simpleInstruction(nameof(instr), offset);
             case OpCode::CONSTANT:
                 return constantInstruction(nameof(instr), offset);
@@ -114,6 +123,7 @@ public:
                 std::cout << "Unknown opcode " << static_cast<uint8_t>(instr) << '\n';
                 return offset + 1;
         }
+        
     }    
 
     

@@ -16,7 +16,6 @@ void repl(VM& vm)
             break;
         }
 
-        vm;
         vm.interpret(line);
 
         // Flush

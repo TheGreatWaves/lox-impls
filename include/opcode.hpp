@@ -27,6 +27,8 @@ enum class OpCode : uint8_t
     NEGATE,
     NOT,
 
+    PRINT,
+    
     // Return op
     RETURN,
 };
@@ -49,6 +51,7 @@ enum class OpCode : uint8_t
         case OpCode::EQUAL:     return "OP_EQUAL";
         case OpCode::GREATER:   return "OP_GREATER";
         case OpCode::LESS:      return "OP_LESS";
+        case OpCode::PRINT:     return "OP_PRINT";
         default:                throw std::invalid_argument("UNEXPECTED OUTPUT");
     }
 }
