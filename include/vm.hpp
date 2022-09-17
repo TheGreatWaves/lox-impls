@@ -26,28 +26,36 @@ class VM
 private:
     // Read methods
 
-    // Returns the current byte and increments position
+    // Returns the current byte and increments position.
     [[nodiscard]] uint8_t readByte() noexcept
     {
         return this->ip->at(pos++);
     }
 
-    // Returns the current constant stored at the byte
+    // Returns the current constant stored at the byte.
     [[nodiscard]] Value& readConstant() noexcept
     {
+        // readByte() here is expected to
+        // return an uint8_t value which represents
+        // the index at which our constant sits in,
+        // in the chunk's constant collection.
         return this->mChunk->constants.at(readByte());
     }
     
+    // Read the current string constant stored at the byte.
     [[nodiscard]] std::string& readString() noexcept
     {
+        // Return the current value and interpret it
+        // as a string.
         return std::get<std::string>(readConstant());
     }
 
 public:
-    // Constructor
+    // Ctor.
     VM() 
         : pos(0)
     {
+        // Clean state.
         resetStack();
     }
 
@@ -76,12 +84,6 @@ public:
     {
         while(true)
         {
-
-            // Useful lambdas
-
-
-
-
             // Print instruction before executing it (debug)
             #ifdef DEBUG_TRACE_EXECUTION
                 std::cout << "          ";
@@ -93,6 +95,9 @@ public:
                 std::cout << '\n';
 
                 this->mChunk->disassembleInstruction(pos);
+
+                
+                
             #endif
 
             // Exploiting macros, wrap a 'op' b into a lambda to be executed
@@ -106,6 +111,7 @@ public:
 
 
          
+            // read the current byte and increment the
             auto byte = readByte();
             auto instruction = static_cast<OpCode>(byte);
             switch (instruction)
@@ -203,20 +209,18 @@ public:
             }
             case OpCode::DEFINE_GLOBAL:
             {
+
                 // This will definitely be a
                 // string because prior functions
                 // which calls it will never
                 // emit an instruction that 
                 // refers to a non string constant.
-                auto name = readString();
+                auto& name = readString();
 
                 // Assign the global variable 
-                // name with the value
-                globals[name] = peek();
-
-                // Pop the value off the stack
-                // it does not matter anymore
-                pop();
+                // name with the value and pop 
+                // it off the stack.
+                globals[name] = pop();
                 break;
             }
             case OpCode::SET_GLOBAL:
@@ -234,6 +238,23 @@ public:
                     // Variable found, reassign the value
                     found->second = peek(0);    
                 }
+                break;
+            }
+            case OpCode::GET_LOCAL:
+            {
+                // Get the index of the local
+                // variable called for
+                auto slot = readByte();
+
+                // Push the value onto 
+                // the top of the stack.
+                push(stack[slot]);
+                break;
+            }
+            case OpCode::SET_LOCAL:
+            {
+                auto slot = readByte();
+                stack[slot] = peek();
                 break;
             }
             case OpCode::EQUAL:
@@ -262,6 +283,9 @@ public:
     {
         // Reset the pointer
         stackTop = stack.data();
+
+        // Reset Instructor Pointer
+        ip = 0;
     }
 
     void push(Value value) noexcept
@@ -329,8 +353,8 @@ private:
         std::cerr << '\n';
 
        
-        const auto instruction = (*ip).at(pos - 1);
-        const auto line = mChunk->lines.at(instruction);
+        //const auto instruction = (*ip).at(pos - 1);
+        const auto line = mChunk->lines.at(pos-1);
         std::cerr << "[line " << line << "] in script\n";
         resetStack();
     }

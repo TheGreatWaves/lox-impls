@@ -54,14 +54,14 @@ public:
     /////////////////
 
     // A simple instruction
-    [[nodiscard]] std::size_t simpleInstruction(std::string_view name, std::size_t offset) noexcept
+    [[nodiscard]] std::size_t simpleInstruction(std::string_view name, std::size_t offset) const noexcept
     {
         std::cout << name << '\n';
         return offset + 1;
     }
 
     // A constant instruction (Some literal)
-    [[nodiscard]] std::size_t constantInstruction(std::string_view name, std::size_t offset) noexcept
+    [[nodiscard]] std::size_t constantInstruction(std::string_view name, std::size_t offset) const noexcept
     {
         auto constant = this->code[offset + 1];
         
@@ -71,32 +71,32 @@ public:
         return offset + 2;
     }
 
+    [[nodiscard]] std::size_t byteInstruction(std::string_view name, std::size_t offset) const noexcept
+    {
+        auto slot = this->code[offset + 1];
+        printf("%-16s %4d\n", name.data(), slot);
+        return offset + 2;
+    }
+
     // Disassembles the given instruction
     std::size_t disassembleInstruction(std::size_t offset) noexcept
     {
-        printf("%04d ", offset);
+        printf("%04d ", static_cast<int>(offset));
 
         // Fancy printing, subsequent instructions which is on the
         // same line prints | instead of the line number.
-        if (offset > 0)
+        if (offset > 0 && lines.at(offset) == lines.at(offset - 1))
         {
-           
-            assert(offset < lines.size());
-            if (lines.at(offset) == lines.at(offset - 1))
-            {
-                std::cout << "  |  "; 
-            }  
+            std::cout << "  |  ";
         } 
         else
         {
-            printf("%04d ", lines.at(offset));
+            printf("%04d ", static_cast<int>(lines.at(offset)));
         }
 
         // No need for bounds checking since disassemble chunk
         // will only input valid offsets
         auto instr = static_cast<OpCode>(code.at(offset));
-
-
        
 
         // Switch for the instruction
@@ -116,12 +116,16 @@ public:
             case OpCode::GREATER:
             case OpCode::LESS:
             case OpCode::PRINT:
+            case OpCode::POP:
                 return simpleInstruction(nameof(instr), offset);
             case OpCode::CONSTANT:
             case OpCode::DEFINE_GLOBAL:
             case OpCode::GET_GLOBAL:
             case OpCode::SET_GLOBAL:
                 return constantInstruction(nameof(instr), offset);
+            case OpCode::SET_LOCAL:
+            case OpCode::GET_LOCAL:
+                return byteInstruction(nameof(instr), offset);
             default:
                 std::cout << "Unknown opcode " << static_cast<uint8_t>(instr) << '\n';
                 return offset + 1;
@@ -134,11 +138,13 @@ public:
     [[nodiscard]] constexpr std::size_t count() const noexcept { return code.size(); }
 
 
-    // Push multiple constants
+    // Push constant(s)
     template <typename... Args>
     [[nodiscard]] std::size_t addConstant(Args &&... args) noexcept
     {
         constants.emplace_back(std::forward<Args>(args)...);
+
+        // return the index of the newly pushed constant.
         return constants.size() - 1;
     } 
    

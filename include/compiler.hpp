@@ -9,8 +9,9 @@
 
 struct Parser;
 struct ParseRule;
-struct Compiler;
 struct Compilation;
+
+struct Compiler;
 
 void errorAt(Parser& parser, const Token token, std::string_view message) noexcept;
 void errorAtCurrent(Parser& parser, std::string_view message) noexcept;
@@ -126,33 +127,80 @@ void error(Parser& parser, std::string_view message) noexcept
 }
 
 
-struct Compiler
-{
-    Chunk* compilingChunk = nullptr;
+// Used for local variables.
+// - We store the name of the variable
+// 
+// - When resolving an identifer, we 
+//   compare the identifier' lexeme
+//   with each local's name to find
+//   a match.
+// 
+// - The depth field records the scope 
+//   depth of the block where the local
+//   variable was declared.
+struct Local
+{   
+    std::string_view    name;   // Name of local
+    int                 depth;  // The depth level of local
 };
 
+// The compiler will help us resolve local variables.
+struct Compiler
+{
+    std::array<Local, UINT8_COUNT>  locals;
+    int                             localCount = 0;
+    size_t                          scopeDepth = 0;
+};
+
+// This is the struct containing
+// all the functions which will 
+// used to compile the source code.
 struct Compilation
 {
-    Compiler compiler;
-    std::unique_ptr<Parser> parser = nullptr;
+    Chunk* compilingChunk = nullptr;
 
-    [[nodiscard]] Chunk& currentChunk() noexcept { return *compiler.compilingChunk; }
+    Compiler                 compiler;          // Implicit default constructed.
+    std::unique_ptr<Parser>  parser = nullptr;  // 
 
+    [[nodiscard]] Chunk& currentChunk() noexcept { return *compilingChunk; }
+
+     // Write an OpCode byte to the chunk.
+     void emitByte(OpCode byte)
+     {
+        currentChunk().write(byte, parser->previous.line);
+     }
+
+    // Write a byte to the chunk.
     void emitByte(uint8_t byte)
     {
         currentChunk().write(byte, parser->previous.line);
     }
 
-     void emitByte(OpCode byte)
+    // Write the OpCode for return to the chunk.
+    void emitReturn()
     {
-        currentChunk().write(byte, parser->previous.line);
+        emitByte(OpCode::RETURN);
+    }
+
+    // Write two bytes to the chunk.
+    void emitByte(uint8_t byte1, uint8_t byte2)
+    {
+        emitByte(byte1);
+        emitByte(byte2);
+    }
+
+    // Write two OpCode bytes to the chunk.
+    void emitByte(OpCode byte1, OpCode byte2)
+    {
+        emitByte(byte1);
+        emitByte(byte2);
     }
 
     bool compile(std::string_view code, Chunk& chunk) 
     {
         // Setup
         this->parser = std::make_unique<Parser>(code);
-        compiler.compilingChunk = &chunk;
+        compilingChunk = &chunk;
 
         // Compiling
         parser->advance();
@@ -219,46 +267,34 @@ struct Compilation
         }
     }
 
-    void emitReturn() 
-    {
-        emitByte(OpCode::RETURN);
-    }
-
-    void emitByte(uint8_t byte1, uint8_t byte2)
-    {
-        emitByte(byte1);
-        emitByte(byte2);
-    }
-
-    void emitByte(OpCode byte1, OpCode byte2)
-    {
-        emitByte(byte1);
-        emitByte(byte2);
-    }
-
-    // Expressions
-
+    // Parse expression.
     void expression()
     {
+        // Beginning of the Pratt parser.
+
+        // Parse with lowest precedence first.
         parsePrecedence(Precedence::Assignment);
     }
 
     // Variable declaration (A 'var' token found)
     void varDeclaration()
     {
-        // Parse the variable name.
+        // Parse the variable name and get back
+        // the index of the newly pushed constant (the name)
         auto global = parseVariable("Expect variable name.");
 
+        // We expect the next token to be
+        // an assignment operator.
         if (match(TokenType::Equal))
         {
             // If there is an equal token,
-            // evaluate the follwing
-            // expression. The result
-            // of the evaluation will
-            // be the assigned value.
+            // consume it then evaluate
+            // the following expression.
+            // The result of the evaluation
+            // will be the assigned value
             expression();
         }
-        else
+        else // No equal token found. We imply unintialized declaration.
         {
             // The expression is declared,
             // but uninitialized, implicitly
@@ -267,12 +303,13 @@ struct Compilation
         }
 
         // We expect statements to be 
-        // terminated with a semi-colon
+        // terminated with a semi-colon.
         // Consume the final token to 
         // finalize the statement.
         parser->consume(TokenType::Semicolon, "Expect ';' after variable declaration.");
 
-        // Define the variable.
+        // If everything went well then we 
+        // can now just define the variable.
         defineVariable(global);
     }
 
@@ -289,6 +326,8 @@ struct Compilation
         // Match variable token.
         if (match(TokenType::Var))
         {
+            // After the var token is consumed, we need
+            // to parse for the variable name and value
             varDeclaration();
         }
         else 
@@ -302,11 +341,44 @@ struct Compilation
         if (parser->panicMode) synchronize();
     }
 
+
+    void block()
+    {
+        // While we we haven't reached reached the end of
+        // the block, or reach the end, we parse the
+        // declaration(s).
+        while (!parser->check(TokenType::RightBrace) && !parser->check(TokenType::Eof))
+        {
+            declaration();
+        }
+
+        // The while loop ends when the
+        // current token is the right brace
+        // (or end of file).
+
+        // We simply consume the right brace
+        // to complete the process.
+        parser->consume(TokenType::RightBrace, "Expect '}': no matching token found.");
+
+    }
+
+    // Parse statements.
     void statement()
     {
+        // Check if we match a print token,
+        // if we are then the token will be
+        // consumed, then we evaluate the
+        // subsequent tokens, expecting them
+        // to be expression statements.
         if (match(TokenType::Print))
         {
             printStatement();
+        }
+        else if (match(TokenType::LeftBrace))
+        {
+            beginScope();
+            block();
+            endScope();
         }
         // We're not looking at print,
         // we must be looking at an
@@ -317,10 +389,20 @@ struct Compilation
         }
     }
 
+    // Parse a print statement.
     void printStatement() noexcept
     {
+        // Evalaute the expression
         expression();
+
+        // If parsing and evaluating the expression
+        // succeeded, we can then consume the ';'
+        // concluding the process.
         parser->consume(TokenType::Semicolon, "Expected ';' after value.");
+
+        // If everything succeeded, 
+        // simply emit the bytecode
+        // for print.
         emitByte(OpCode::PRINT);
     }
     
@@ -348,16 +430,22 @@ struct Compilation
         emitByte(static_cast<uint8_t>(OpCode::CONSTANT), makeConstant(value));
     }
 
+    // Create a new constant and add it to the chunk.
     [[nodiscard]] uint8_t makeConstant(Value value) noexcept
     {
-        int constant = currentChunk().addConstant(value);
-        if (constant > UINT8_COUNT)
+        // Add the constant to the current chunk and retrieve the 
+        // byte code which corresponds to it.
+        auto constant = static_cast<uint8_t>(currentChunk().addConstant(value));
+
+        if (constant > UINT8_MAX)
         {
             error(*parser.get(), "Too many constants in one chunk");
             return 0;
         }
 
-        return static_cast<uint8_t>(constant);
+        // Return the bytecode which correspond to 
+        // the constant pushed onto the chunk.
+        return constant;
     }
 
     void grouping(bool) noexcept
@@ -438,10 +526,55 @@ struct Compilation
         namedVariable(canAssign);
     }
 
+    [[nodiscard]] int resolveLocal() const
+    {
+        // Walk the list from the back,
+        // returns the first local which
+        // has the same name as the identifier
+        // token.
+
+        // The list is walked backward, starting from the
+        // current deepest layer, because all locals 
+        // only have access to local variables declared in
+        // lower or equal depth.
+
+        // The compiler's local array will mirror the vm's stack
+        // which means that the index can be directly grabbed from
+        // here.
+        for (auto i = compiler.localCount - 1; i >= 0; i--)
+        {
+            auto& local = compiler.locals.at(i);
+            if (identifiersEqual(parser->previous.text, local.name))
+            {
+                if (local.depth == -1)
+                {
+                    error(*parser, "Can't read local variable in its own initializer.");
+                }
+                return i;
+            }
+        }
+
+        // Variable with given name not found,
+        // assumed to be global variable instead.
+        return -1;
+    }
+
 
     void namedVariable(bool canAssign)
     {
-        auto arg = identifierConstant();
+        OpCode getOp, setOp;
+        int arg = resolveLocal();
+        if (arg != -1)
+        {
+            getOp = OpCode::GET_LOCAL;
+            setOp = OpCode::SET_LOCAL;
+        }
+        else
+        {
+            arg = identifierConstant();
+            getOp = OpCode::GET_GLOBAL;
+            setOp = OpCode::SET_GLOBAL;
+        }
 
         // Indiciates that the variable is
         // calling for a setter/ assignment.
@@ -451,21 +584,26 @@ struct Compilation
             expression();
 
             // Link variable name to it in the map.
-            emitByte(static_cast<uint8_t>(OpCode::SET_GLOBAL), arg);
+            emitByte(static_cast<uint8_t>(setOp), static_cast<uint8_t>(arg));
         }
         else
         {
             // Calls for getter / access.
-            emitByte(static_cast<uint8_t>(OpCode::GET_GLOBAL), arg);
+            emitByte(static_cast<uint8_t>(getOp), static_cast<uint8_t>(arg));
         }
     }
 
     // Precedence
     void parsePrecedence(Precedence precedence)
     {
+        // Consume the first token.
         parser->advance();
         
+        // Get the type of the token.
         auto type = parser->previous.type;
+
+        // Get the precedence rule which applies 
+        // to the given token.
         auto prefixRule = getRule(type).prefix;
 
         if (prefixRule == nullptr)
@@ -491,21 +629,181 @@ struct Compilation
         }
     }
 
+    // Create a new value with the previous token's lexeme
+    // and return the index at which is is added in the constant table.
     [[nodiscard]] uint8_t identifierConstant() noexcept
     {
         return makeConstant({std::string(parser->previous.text)});
     }
 
-    // Parses the variable
+    [[nodiscard]] bool identifiersEqual(std::string_view str1, std::string_view str2) const noexcept
+    {
+        return str1 == str2;
+    }
+
+    void declareVariable()
+    {
+        // If we are in global scope return.
+        // This is only for local variables.
+        if (compiler.scopeDepth == 0) return;
+
+        auto name = parser->previous.text;
+
+        for (auto i = compiler.localCount - 1; i >= 0; i--)
+        {
+            assert(i < compiler.locals.size());
+            auto& local = compiler.locals[i];
+            if (local.depth != -1 && local.depth < compiler.scopeDepth)
+            {
+                break;
+            }
+
+            if (identifiersEqual(name, local.name))
+            {
+                error(*parser, "Re-definition of an existing variable in this scope.");
+            }
+        }
+
+        // Add the local variable to the compiler.
+        // This makes sure the compiler keeps track
+        // of the existence of the variable.
+        addLocal(name , *parser.get());
+    }
+
+    // Parses the variable's name.
     [[nodiscard]] uint8_t parseVariable(std::string_view message) noexcept
     {
+        // We expect the token after 'var' to be an identifer.
         parser->consume(TokenType::Identifier, message);
+        
+        // Declare the variable
+        declareVariable();
+
+        // Check if we are in scope (Not in global)
+        // At runtime, locals aren't looked up by name,
+        // meaning that there is no need to stuff them
+        // int the constant table, if declaration is in 
+        // scope, we just return a dummy table index.
+        if (compiler.scopeDepth > 0) return 0;
+
+        // If we made it here, it meant that we successfully
+        // consumed an identifer token. We now want to add
+        // the token lexeme as a new constant, then return
+        // the index that it was added at the constant table.
         return identifierConstant();
     }
 
+    // Mark the latest variable initialized's scope to
+    // the current scope.
+    void markInitialized()
+    {
+        compiler.locals[compiler.localCount - 1].depth = static_cast<int>(compiler.scopeDepth);
+    }
+
+    // Define the variable.
+    // Global refers to the index of the name
+    // in the chunk's constant collection.
     void defineVariable(uint8_t global)
     {
+        // If we are in a scope, we do not want to define global.
+        if (compiler.scopeDepth > 0) 
+        {
+            markInitialized();
+            return;
+        }
+        
+        // emit the OpCode and the index of the name. (in chunk's constants)
         emitByte(static_cast<uint8_t>(OpCode::DEFINE_GLOBAL), global);
+    }
+
+    // By incrementing the
+    // depth, we declare that 
+    // a new block has begun.
+    void beginScope() noexcept
+    {
+        compiler.scopeDepth++;
+    }
+
+    // By decrementing the 
+    // depth, we declare that
+    // a block is out of scope,
+    // so we simply return to
+    // the previous layer.
+    void endScope() noexcept
+    {
+        // End of scope.
+        // We go back one scope.
+        compiler.scopeDepth--;
+
+        // Pop all the variables which are now out of scope.
+        // The while loop crawls backwards on locals and
+        // keeps popping the variables off the stack until
+        // it reaches a local variable which has the same 
+        // depth as the current depth being evaluated.
+        
+        // This works beautifully thanks to the fact that
+        // variables in the 'locals' array are nicely grouped 
+        // together, and that the depth attribute is incrementing
+        // uniformly with each subsequent group.
+
+        /* i.e:
+                                                                                                                       
+            var greeting;
+            var message;
+            {
+                var firstName;           ===     [{greeting, 0}, {message, 0}, {firstName, 1}, {middleName, 1}, {lastName, 1}, {deepestLevel, 2}]
+                var middleName;          ===       |_______________________|   |                                            |  |                |
+                var lastName;            ===                   0               |____________________________________________|  |                |
+                {                                                                                     1                        |________________|
+                    var deepestLevel;                                                                                                  2
+                }
+            }
+        */
+
+        // Check that variable count isn't 0.
+        while (compiler.localCount > 0 
+            // Check that the current target variable has deeper depth than the current
+            // deepest scope.
+            && compiler.locals[compiler.localCount - 1].depth > compiler.scopeDepth)
+        {
+            // Pop the value off the stack.
+            emitByte(OpCode::POP);
+
+            // One less variable.
+            compiler.localCount--;
+        }
+
+       /* for (auto slot = 0; slot < compiler.localCount; ++slot)
+        {
+            std::cout << "{ " << compiler.locals[slot].name << " }";
+        }
+        std::cout << '\n';*/
+    }
+
+    // Add local variable to the compiler.
+    void addLocal(std::string_view name, Parser& targetParser)
+    {
+
+        // Since our indexs are stored in a single byte,
+        // it means that we can only support 256 local
+        // variables in scope at one time, so it must be
+        // prevented.
+        if (compiler.localCount == UINT8_COUNT)
+        {
+            error(targetParser, "Too many local variables declared in function.");
+            return;
+        }
+
+        assert(compiler.localCount < compiler.locals.size());
+        auto& local = compiler.locals[compiler.localCount++];
+        local.name = name;
+        local.depth = -1;
+
+        /*for (auto slot = 0; slot < compiler.localCount; ++slot)
+        {
+            std::cout << "{ " << compiler.locals[slot].name << " }";
+        }
+        std::cout << '\n';*/
     }
 
     // get rule

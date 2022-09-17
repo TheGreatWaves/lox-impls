@@ -29,16 +29,18 @@ enum class TokenType : uint8_t
 
 struct Token
 {
-    TokenType type;
-    std::string_view text;
-    std::size_t line;
+    TokenType           type;
+    std::string_view    text;
+    std::size_t         line;
 
     constexpr Token(TokenType pType, std::string_view pText, std::size_t pLine) noexcept
         : type(pType), text(pText), line(pLine)
     {}
 
     constexpr Token() noexcept
-        : type(TokenType::Eof) {}
+        : type(TokenType::Eof)
+        , line(0) 
+    {}
 };
 
 class Scanner

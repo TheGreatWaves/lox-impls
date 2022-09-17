@@ -22,6 +22,9 @@ enum class OpCode : uint8_t
     GET_GLOBAL,
     SET_GLOBAL,
 
+    SET_LOCAL,
+    GET_LOCAL,
+
     // Value comparison ops
     EQUAL,
     GREATER,
@@ -65,6 +68,9 @@ enum class OpCode : uint8_t
         case OpCode::POP:       return "OP_POP";
         case OpCode::DEFINE_GLOBAL: return "OP_DEFINE_GLOBAL";
         case OpCode::GET_GLOBAL: return "OP_GET_GLOBAL";
+        case OpCode::SET_GLOBAL: return "OP_SET_GLOBAL";
+        case OpCode::SET_LOCAL: return "OP_SET_LOCAL";
+        case OpCode::GET_LOCAL: return "OP_GET_LOCAL";
         default:                throw std::invalid_argument("UNEXPECTED OUTPUT");
     }
 }
