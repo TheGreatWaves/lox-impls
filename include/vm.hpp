@@ -82,6 +82,13 @@ public:
     // Run the interpreter on the chunk
     [[nodiscard]] InterpretResult run()
     {
+
+        auto readShort = [this]() -> uint16_t {
+            this->pos += 2;
+            return static_cast<uint16_t>(this->ip->at(pos - 2) | this->ip->at(pos - 1));
+        };
+
+
         while(true)
         {
             // Print instruction before executing it (debug)
@@ -266,6 +273,21 @@ public:
             }
             case OpCode::GREATER:   BINARY_OP(>); break;
             case OpCode::LESS:      BINARY_OP(<); break;
+            case OpCode::JUMP_IF_FALSE:
+            {
+                auto offset = readShort();
+                if (isFalsey(peek(0))) 
+                {
+                    this->pos += offset;
+                }
+                break;
+            }
+            case OpCode::JUMP:
+            {
+                auto offset = readShort();
+                pos += offset;
+                break;
+            }
             case OpCode::RETURN:
             {
                 // Exit interpreter
@@ -319,6 +341,7 @@ private:
         bool operator()(const T) const noexcept { return true; }
     };
 
+    // Returns whether the value is false or not.
     bool isFalsey(const Value& value) const
     {
         return std::visit(FalseyVistor(), value); 

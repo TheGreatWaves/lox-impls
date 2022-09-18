@@ -42,6 +42,11 @@ enum class OpCode : uint8_t
 
     PRINT,
     
+    // PROGRAM FLOW
+    JUMP_IF_FALSE,
+    JUMP,
+
+
     // Return op
     RETURN,
 };
@@ -71,6 +76,8 @@ enum class OpCode : uint8_t
         case OpCode::SET_GLOBAL: return "OP_SET_GLOBAL";
         case OpCode::SET_LOCAL: return "OP_SET_LOCAL";
         case OpCode::GET_LOCAL: return "OP_GET_LOCAL";
+        case OpCode::JUMP_IF_FALSE: return "OP_JUMP_IF_FALSE";
+        case OpCode::JUMP:      return "OP_JUMP";
         default:                throw std::invalid_argument("UNEXPECTED OUTPUT");
     }
 }

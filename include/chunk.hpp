@@ -78,6 +78,16 @@ public:
         return offset + 2;
     }
 
+
+    [[nodiscard]] std::size_t jumpInstruction(std::string_view name, int sign, std::size_t offset) const noexcept
+    {
+        auto jump = static_cast<uint16_t>(this->code.at(offset + 1) << 8);
+        jump |= this->code.at(offset + 2);
+        printf("%-16s %4d -> %d\n", name.data(), static_cast<int>(offset),
+            static_cast<int>(offset) + 3 + sign * jump);
+        return offset + 3;
+    }
+
     // Disassembles the given instruction
     std::size_t disassembleInstruction(std::size_t offset) noexcept
     {
@@ -126,6 +136,9 @@ public:
             case OpCode::SET_LOCAL:
             case OpCode::GET_LOCAL:
                 return byteInstruction(nameof(instr), offset);
+            case OpCode::JUMP:
+            case OpCode::JUMP_IF_FALSE:
+                return jumpInstruction(nameof(instr), 1, offset);
             default:
                 std::cout << "Unknown opcode " << static_cast<uint8_t>(instr) << '\n';
                 return offset + 1;

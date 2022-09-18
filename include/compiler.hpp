@@ -196,6 +196,23 @@ struct Compilation
         emitByte(byte2);
     }
 
+    [[nodiscard]] int emitJump(OpCode instruction)
+    {
+        return emitJump(static_cast<uint8_t>(instruction));
+    }
+
+    [[nodiscard]] int emitJump(uint8_t instruction)
+    {
+
+        emitByte(instruction);
+
+        // Emit place holder bytes
+        emitByte(0xff);
+        emitByte(0xff);
+
+        return static_cast<int>(compilingChunk->count() - 2);
+    }
+
     bool compile(std::string_view code, Chunk& chunk) 
     {
         // Setup
@@ -313,11 +330,58 @@ struct Compilation
         defineVariable(global);
     }
 
+    void and_(bool)
+    {
+        auto endJump = emitJump(OpCode::JUMP_IF_FALSE);
+
+        emitByte(OpCode::POP);
+        parsePrecedence(Precedence::And);
+
+        patchJump(endJump);
+    }
+
+    void or_(bool)
+    {
+        auto elseJump = emitJump(OpCode::JUMP_IF_FALSE);
+        auto endJump = emitJump(OpCode::JUMP);
+
+        patchJump(elseJump);
+        emitByte(OpCode::POP);
+
+        parsePrecedence(Precedence::Or);
+        patchJump(endJump);
+    }
+
     void expressionStatement()
     {
         expression();
         parser->consume(TokenType::Semicolon, "Expect ';' after expression.");
         emitByte(OpCode::POP);
+    }
+
+    void ifStatement()
+    {
+        // Consume the if '(...)' part. Evaluate the '...' expression aswell.
+        parser->consume(TokenType::LeftParen, "Expect '(' after 'if'.");
+        expression();
+        parser->consume(TokenType::RightParen, "Expect ')' after condition.");
+
+        // Jump offset (if false we jump over the statement)
+        auto thenJump = emitJump(static_cast<uint8_t>(OpCode::JUMP_IF_FALSE));
+        emitByte(OpCode::POP);
+        statement();
+
+        int elseJump = emitJump(static_cast<uint8_t>(OpCode::JUMP));
+
+        patchJump(thenJump);
+        emitByte(OpCode::POP);
+
+        if (match(TokenType::Else))
+        {
+            statement();
+        }
+
+        patchJump(elseJump);
     }
 
     // Declaring statements or variables.
@@ -380,6 +444,10 @@ struct Compilation
             block();
             endScope();
         }
+        else if (match(TokenType::If))
+        {
+            ifStatement();
+        }
         // We're not looking at print,
         // we must be looking at an
         // expression statement.
@@ -428,6 +496,20 @@ struct Compilation
     void emitConstant(Value value) noexcept
     {
         emitByte(static_cast<uint8_t>(OpCode::CONSTANT), makeConstant(value));
+    }
+
+    void patchJump(int offset)
+    {
+        // -2 to adjust for the bytecode for the jump offset itself
+        auto jump = compilingChunk->count() - offset - 2;
+
+        if (jump > UINT16_MAX)
+        {
+            error(*parser, "Too much code to jump over.");
+        }
+
+        compilingChunk->code.at(offset) = (jump >> 8) & 0xff;
+        compilingChunk->code.at(offset + 1) = jump & 0xff;
     }
 
     // Create a new constant and add it to the chunk.
@@ -816,10 +898,12 @@ struct Compilation
         auto literal = [this](bool canAssign) { this->literal(canAssign); };
         auto string = [this](bool canAssign) { this->string(canAssign); };
         auto variable = [this](bool canAssign) { this->variable(canAssign); };
+        auto and_ = [this](bool canAssign) { this->and_(canAssign); };
+        auto or_ = [this](bool canAssign) { this->or_(canAssign); };
         
         static ParseRule rls[] = 
         {
-            {grouping,       nullptr,    Precedence::None},     // TokenType::LEFT_PAREN
+            {grouping,      nullptr,    Precedence::None},     // TokenType::LEFT_PAREN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::RIGHT_PAREN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::LEFT_BRACE
             {nullptr,       nullptr,    Precedence::None},      // TokenType::RIGHT_BRACE
@@ -841,7 +925,7 @@ struct Compilation
             {variable,      nullptr,    Precedence::None},      // TokenType::IDENTIFIER
             {string,        nullptr,    Precedence::None},      // TokenType::STRING
             {number,        nullptr,    Precedence::None},      // TokenType::NUMBER
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::AND
+            {nullptr,       and_,       Precedence::And},      // TokenType::AND
             {nullptr,       nullptr,    Precedence::None},      // TokenType::CLASS
             {nullptr,       nullptr,    Precedence::None},      // TokenType::ELSE
             {literal,       nullptr,    Precedence::None},      // TokenType::FALSE
@@ -849,7 +933,7 @@ struct Compilation
             {nullptr,       nullptr,    Precedence::None},      // TokenType::FUN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::IF
             {literal,       nullptr,    Precedence::None},      // TokenType::NIL
-            {nullptr,       nullptr,    Precedence::None},      // TokenType::OR
+            {nullptr,       or_,        Precedence::Or},      // TokenType::OR
             {nullptr,       nullptr,    Precedence::None},      // TokenType::PRINT
             {nullptr,       nullptr,    Precedence::None},      // TokenType::RETURN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::SUPER

@@ -16,3 +16,6 @@
 build/
 out/
 .vscode/settings.json
+
+# Visual studios
+.vs
