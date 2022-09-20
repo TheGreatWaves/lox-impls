@@ -196,6 +196,25 @@ struct Compilation
         emitByte(byte2);
     }
 
+    // Jump backwards by a given offset.
+    void emitLoop(std::size_t loopStart)
+    {
+        emitByte(OpCode::LOOP);
+
+        // This offset is the size of the statement nested in the while loop.
+        auto offset = compilingChunk->count() - loopStart + 2;
+
+        if (offset > UINT16_MAX)
+        {
+            error(*parser, "Loop body too large");
+        }
+
+        // Emit bytes containing the offset
+        emitByte((offset >> 8) & 0xff);
+        emitByte(offset & 0xff);
+    }
+
+
     [[nodiscard]] int emitJump(OpCode instruction)
     {
         return emitJump(static_cast<uint8_t>(instruction));
@@ -384,6 +403,36 @@ struct Compilation
         patchJump(elseJump);
     }
 
+    void whileStatement()
+    {
+        // This is the starting position of the bytecode for the while loop statement.
+        // We want to jump back to this position, if the expression is true.
+        // Note that we jump back to before the condition, to re-evaluate it.
+        auto loopStart = compilingChunk->count();
+
+        // Consume the while '(...)' part. Evaluate the '...' expression aswell.
+        parser->consume(TokenType::LeftParen, "Expect '(' after 'while'.");
+        expression();
+        parser->consume(TokenType::RightParen, "Expect ')' after condition.");
+
+        // Emit OpCode and place holder byte offset.
+        int exitJump = emitJump(OpCode::JUMP_IF_FALSE);
+        
+        // Pop the expressson off the stack (value discarded)
+        emitByte(OpCode::POP);
+
+        // Evaluate the statement {...}
+        statement();
+
+        emitLoop(loopStart);
+
+        // By this point the bytecode offset is known, back patch.
+        patchJump(exitJump);
+
+        
+        emitByte(OpCode::POP);
+    }
+
     // Declaring statements or variables.
     void declaration()
     {
@@ -447,6 +496,10 @@ struct Compilation
         else if (match(TokenType::If))
         {
             ifStatement();
+        }
+        else if (match(TokenType::While))
+        {
+            whileStatement();
         }
         // We're not looking at print,
         // we must be looking at an

@@ -288,6 +288,15 @@ public:
                 pos += offset;
                 break;
             }
+            case OpCode::LOOP:
+            {
+                // Read the offset (Beginning of the statement nested inside loop)
+                auto offset = readShort();
+
+                // Jump to it
+                this->pos -= offset;
+                break;
+            }
             case OpCode::RETURN:
             {
                 // Exit interpreter

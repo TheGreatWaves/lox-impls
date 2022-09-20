@@ -139,6 +139,8 @@ public:
             case OpCode::JUMP:
             case OpCode::JUMP_IF_FALSE:
                 return jumpInstruction(nameof(instr), 1, offset);
+            case OpCode::LOOP:
+                return jumpInstruction(nameof(instr), -1, offset);
             default:
                 std::cout << "Unknown opcode " << static_cast<uint8_t>(instr) << '\n';
                 return offset + 1;

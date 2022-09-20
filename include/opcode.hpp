@@ -45,6 +45,7 @@ enum class OpCode : uint8_t
     // PROGRAM FLOW
     JUMP_IF_FALSE,
     JUMP,
+    LOOP,
 
 
     // Return op
@@ -78,6 +79,7 @@ enum class OpCode : uint8_t
         case OpCode::GET_LOCAL: return "OP_GET_LOCAL";
         case OpCode::JUMP_IF_FALSE: return "OP_JUMP_IF_FALSE";
         case OpCode::JUMP:      return "OP_JUMP";
+        case OpCode::LOOP:      return "OP_LOOP";
         default:                throw std::invalid_argument("UNEXPECTED OUTPUT");
     }
 }
