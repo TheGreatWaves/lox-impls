@@ -419,6 +419,7 @@ struct Compilation
         int exitJump = emitJump(OpCode::JUMP_IF_FALSE);
         
         // Pop the expressson off the stack (value discarded)
+        // (This is executed when the loop is true)
         emitByte(OpCode::POP);
 
         // Evaluate the statement {...}
@@ -429,8 +430,122 @@ struct Compilation
         // By this point the bytecode offset is known, back patch.
         patchJump(exitJump);
 
-        
+        // Assuming it was false and we jumped over, we now have to pop the value outside.
+        // Since the only pop code we have was executed during the loop.
         emitByte(OpCode::POP);
+    }
+
+    void forStatement()
+    {
+        // Begin a new scope, the variables will be scoped 
+        // to the for loop body.
+        beginScope();
+
+        // We expect for ( init ; expr ; incr )
+        parser->consume(TokenType::LeftParen, "Expect '(' after 'for'.");
+        
+       
+        if (match(TokenType::Semicolon))
+        {
+            // No initializer : for(; ... ; ...)
+            // NOTE: Semi-colon is consumed.
+        }
+        else if (match(TokenType::Var))
+        {
+            // We got a variable declaration : for(var i = 0; ... ; ...)
+            // NOTE: Semi-colon is consumed.
+            varDeclaration();
+        }
+        else
+        {
+            // We got an expression 
+            // Note expressionStatement() 
+            // will also consume a ';'
+            // and will pop the value off. for( i = 0 ; ... ; ...)
+            // NOTE: Semi-colon is consumed.
+            expressionStatement(); 
+        }
+        
+        // The beginning of our loop (expr eval)
+        auto loopStart = compilingChunk->count();
+  
+        // Evaluating the expression that can be used to exit the loop.
+        auto exitJump = -1;
+
+        // Check if condition clause was omitted, if it was, the next token MUST be a semi-colon.
+        // and if it isn't then it won't be a semi-colon.
+        if (!match(TokenType::Semicolon))
+        {
+            // Next token isn't a semicolon, therefore we must evaluate the expression.
+            // Put expression on the stack for condition checking for the loop.
+            expression();
+
+            // Consume the semi colon after the expression.
+            parser->consume(TokenType::Semicolon, "Expect ';' after loop condition.");
+
+
+            // Jump out of the loop if the condition is false.
+            exitJump = emitJump(OpCode::JUMP_IF_FALSE);
+
+            // Pop the expression off the stack.
+            emitByte(OpCode::POP);
+        }
+
+        // If the next token isn't right parenthesis ')', there is an increment clause.
+        if (!match(TokenType::RightParen))
+        {
+            // There is an increment clause.
+
+            // Offset for jumping to the start of the body
+            auto bodyJump = emitJump(OpCode::JUMP);
+
+            // This is where the expression for incrementing is.
+            auto incrementStart = compilingChunk->count();
+
+            // Compile expression for the side effects.
+            // We don't care about the returned value
+            // so we simply pop if off the stack.
+            expression();
+            emitByte(OpCode::POP);
+
+            // Consume the next token, which is expected to be ')'
+            parser->consume(TokenType::RightParen, "Expect ')' after for clauses.");
+
+            // Emit a loop instruction, this is the loop that will take us 
+            // back to the top of the for loop, right before the condition
+            // expression if there is one. The for loop executes after the
+            // increment since the increment executes at the end of each
+            // loop iteration.
+            emitLoop(loopStart);
+
+            // Change loopStart to point to the offset where the increment
+            // expression begins. Later when we emit the loop instruction
+            // after the body statement, this will cause it to jump up to
+            // the increment expression instead of the top.
+            loopStart = incrementStart;
+
+            // Back patch the body jump.
+            patchJump(bodyJump);
+        }
+
+        // Compile the statement.
+        statement();
+
+        // Jump back to the beginning (expr)
+        emitLoop(loopStart);
+        
+        // Patch jump.
+        // We do this only when there is a condition clause,
+        // otherwise there is no jump to patch, and no condition
+        // value on the stack to pop.
+        if (exitJump != -1)
+        {
+            patchJump(static_cast<uint8_t>(exitJump));
+            emitByte(OpCode::POP); // Pop condition off
+        }
+
+        // Once the whole for loop is evaluated, we have to end the scope.
+        endScope();
     }
 
     // Declaring statements or variables.
@@ -492,6 +607,10 @@ struct Compilation
             beginScope();
             block();
             endScope();
+        }
+        else if (match(TokenType::For))
+        {
+            forStatement();
         }
         else if (match(TokenType::If))
         {
