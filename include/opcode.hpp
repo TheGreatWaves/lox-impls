@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string_view>
+#include <stdexcept>
 
 // Enums of instructions supported
 enum class OpCode : uint8_t

@@ -2,14 +2,27 @@
 
 #include <unordered_map>
 
-#include "chunk.hpp"
+#include "value.hpp"
 #include "compiler.hpp"
 
 // https://en.cppreference.com/w/cpp/utility/variant/visit
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 
 // Max number of elements in the stack
-constexpr std::size_t STACK_MAX = 256;
+
+
+constexpr uint8_t FRAMES_MAX = 64;
+constexpr std::size_t STACK_MAX = FRAMES_MAX * UINT8_COUNT;
+
+struct CallFrame
+{
+    Function  function;
+
+    std::vector<Value>    *slots;                  // Byte code vector
+    std::size_t     ip;                    // Position in the code
+
+};
+
 
 // The result of the interpretation
 enum class InterpretResult
@@ -24,36 +37,10 @@ class VM
 {
 
 private:
-    // Read methods
-
-    // Returns the current byte and increments position.
-    [[nodiscard]] uint8_t readByte() noexcept
-    {
-        return this->ip->at(pos++);
-    }
-
-    // Returns the current constant stored at the byte.
-    [[nodiscard]] Value& readConstant() noexcept
-    {
-        // readByte() here is expected to
-        // return an uint8_t value which represents
-        // the index at which our constant sits in,
-        // in the chunk's constant collection.
-        return this->mChunk->constants.at(readByte());
-    }
-    
-    // Read the current string constant stored at the byte.
-    [[nodiscard]] std::string& readString() noexcept
-    {
-        // Return the current value and interpret it
-        // as a string.
-        return std::get<std::string>(readConstant());
-    }
 
 public:
     // Ctor.
     VM() 
-        : pos(0)
     {
         // Clean state.
         resetStack();
@@ -62,46 +49,59 @@ public:
     // Interpret source
     InterpretResult interpret(std::string_view code)
     {
-        Chunk chunk;
-        if (!cu.compile(code, chunk))
-        {
-            return InterpretResult::COMPILE_ERROR;
-        }
-        return interpret(&chunk);
-    }
+        auto func = cu.compile(code);
+        if (func == nullptr) return InterpretResult::COMPILE_ERROR;
 
-    // Interpret the chunk
-    [[nodiscard]] InterpretResult interpret(Chunk* chunk)
-    {
-        mChunk = chunk;
-        this->ip = &chunk->code;
-        this->pos = 0;
+        push(func);
+        auto& frame = frames.at(frameCount++);
+        frame.function = func;
+        frame.ip = 0;
+        frame.slots = &stack;
+        
         return run();
     }
+
 
     // Run the interpreter on the chunk
     [[nodiscard]] InterpretResult run()
     {
-
-        auto readShort = [this]() -> uint16_t {
-            this->pos += 2;
-            return static_cast<uint16_t>(this->ip->at(pos - 2) | this->ip->at(pos - 1));
+        CallFrame& frame = frames.back();
+        
+        auto readByte = [&]() -> uint8_t
+        {
+            return frame.function->mChunk.code.at(frame.ip++);
         };
 
+        auto readShort = [&]() -> uint16_t {
+            frame.ip += 2;
+            auto& code = frame.function->mChunk.code;
+            return static_cast<uint16_t>(code.at(frame.ip - 2) | code.at(frame.ip - 1));
+        };
+
+        auto readConstant = [&]() -> Value&
+        {
+            return frame.function->mChunk.constants.at(readByte());
+        };
+
+        auto readString = [&]() -> std::string&
+        {
+            return std::get<std::string>(readConstant());
+        };
 
         while(true)
         {
             // Print instruction before executing it (debug)
             #ifdef DEBUG_TRACE_EXECUTION
                 std::cout << "          ";
-                for (auto slot = stack.data(); slot < stackTop; ++slot)
+                for (auto slot = 0; slot < stack.size(); ++slot)
                 {
-                    std::cout << "[ " << *slot << " ]";
+                    std::cout << "[ " << stack[slot] << " ]";
 
                 }
                 std::cout << '\n';
 
-                this->mChunk->disassembleInstruction(pos);
+                frame
+                    frame.function.mChunk.disassembleInstruction(frame.ip);
 
                 
                 
@@ -255,13 +255,13 @@ public:
 
                 // Push the value onto 
                 // the top of the stack.
-                push(stack[slot]);
+                push(frame.slots->at(slot));
                 break;
             }
             case OpCode::SET_LOCAL:
             {
                 auto slot = readByte();
-                stack[slot] = peek();
+                frame.slots->at(slot) = peek();
                 break;
             }
             case OpCode::EQUAL:
@@ -278,14 +278,14 @@ public:
                 auto offset = readShort();
                 if (isFalsey(peek(0))) 
                 {
-                    this->pos += offset;
+                    frame.ip += offset;
                 }
                 break;
             }
             case OpCode::JUMP:
             {
                 auto offset = readShort();
-                pos += offset;
+                frame.ip += offset;
                 break;
             }
             case OpCode::LOOP:
@@ -294,7 +294,7 @@ public:
                 auto offset = readShort();
 
                 // Jump to it
-                this->pos -= offset;
+                frame.ip -= offset;
                 break;
             }
             case OpCode::RETURN:
@@ -312,30 +312,25 @@ public:
 
     void resetStack() noexcept
     {
-        // Reset the pointer
-        stackTop = stack.data();
-
-        // Reset Instructor Pointer
-        ip = 0;
+        // Reset frame
+        frameCount = 0;
     }
 
-    void push(Value value) noexcept
+    void push(const Value& value) noexcept
     {
-        // Dereference and assign
-        *stackTop = std::move(value);
-        ++stackTop;
+        stack.push_back(value);
     }
 
     Value pop() noexcept
     {
-        // Decrement and return 
-        --stackTop;
-        return *stackTop;
+        auto value = std::move(stack.back());
+        stack.pop_back();
+        return value;
     }
 
     [[nodiscard]] const Value& peek(std::size_t offset = 0) const
     {
-        return stackTop[-1 - offset];
+        return stack.at(stack.size() - 1 - offset);
     }
 
 private:
@@ -346,8 +341,7 @@ private:
         bool operator()(const std::monostate) const noexcept { return true; }
 
         // Handles any other case as true
-        template <typename T>
-        bool operator()(const T) const noexcept { return true; }
+        bool operator()(auto) const noexcept { return true; }
     };
 
     // Returns whether the value is false or not.
@@ -384,22 +378,22 @@ private:
         (std::cerr << ... << std::forward<Args>(args));
         std::cerr << '\n';
 
-       
-        //const auto instruction = (*ip).at(pos - 1);
-        const auto line = mChunk->lines.at(pos-1);
+        auto& frame = frames.back();
+        auto instr = frame.ip;
+        const auto line = frame.function->mChunk.lines.at(instr);
         std::cerr << "[line " << line << "] in script\n";
         resetStack();
     }
 
 private:
+    std::vector<CallFrame>      frames;
+    int                         frameCount;
+    
+    std::vector<Value>          stack;                  
 
-    Chunk*                          mChunk;                 // Chunk to interpret
-    CodeVector*                     ip;                     // Instruction pointer
-    std::size_t                     pos;                    // Position in the code
-    std::array<Value, STACK_MAX>    stack;                  
-    Value*                          stackTop = nullptr;
+    Compilation                 cu;
 
-    Compilation                     cu;
+
 
     std::unordered_map<std::string, Value> globals; // Global variables;
 };

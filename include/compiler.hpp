@@ -17,6 +17,13 @@ void errorAt(Parser& parser, const Token token, std::string_view message) noexce
 void errorAtCurrent(Parser& parser, std::string_view message) noexcept;
 void error(Parser& parser, std::string_view message) noexcept;
 
+enum class FunctionType 
+{
+    FUNCTION,
+    SCRIPT
+};
+
+
 enum class Precedence : uint8_t
 {
     None,
@@ -147,6 +154,19 @@ struct Local
 // The compiler will help us resolve local variables.
 struct Compiler
 {
+    Compiler(FunctionType type = FunctionType::SCRIPT)
+        : funcType(type)
+    {
+        function = std::make_shared<FunctionObject>(0, "");
+
+        auto& local = locals[localCount++];
+        local.depth = 0;
+        local.name = "";
+    }
+
+    Function function = nullptr;
+    FunctionType funcType;
+
     std::array<Local, UINT8_COUNT>  locals;
     int                             localCount = 0;
     size_t                          scopeDepth = 0;
@@ -159,10 +179,10 @@ struct Compilation
 {
     Chunk* compilingChunk = nullptr;
 
-    Compiler                 compiler;          // Implicit default constructed.
-    std::unique_ptr<Parser>  parser = nullptr;  // 
+    std::unique_ptr<Compiler>  compiler;        
+    std::unique_ptr<Parser>     parser = nullptr;  // 
 
-    [[nodiscard]] Chunk& currentChunk() noexcept { return *compilingChunk; }
+    [[nodiscard]] Chunk& currentChunk() noexcept { return compiler->function->mChunk; }
 
      // Write an OpCode byte to the chunk.
      void emitByte(OpCode byte)
@@ -202,7 +222,7 @@ struct Compilation
         emitByte(OpCode::LOOP);
 
         // This offset is the size of the statement nested in the while loop.
-        auto offset = compilingChunk->count() - loopStart + 2;
+        auto offset = currentChunk().count() - loopStart + 2;
 
         if (offset > UINT16_MAX)
         {
@@ -229,14 +249,15 @@ struct Compilation
         emitByte(0xff);
         emitByte(0xff);
 
-        return static_cast<int>(compilingChunk->count() - 2);
+        return static_cast<int>(currentChunk().count() - 2);
     }
 
-    bool compile(std::string_view code, Chunk& chunk) 
+    std::shared_ptr<FunctionObject> compile(std::string_view code) 
     {
         // Setup
         this->parser = std::make_unique<Parser>(code);
-        compilingChunk = &chunk;
+        this->compiler = std::make_unique<Compiler>();
+        compilingChunk = &compiler->function->mChunk;
 
         // Compiling
         parser->advance();
@@ -247,19 +268,27 @@ struct Compilation
             declaration();
         }
         
-        endCompiler();
-        return !parser->hadError;
+        auto& func = endCompiler();
+        
+        return parser->hadError? nullptr: func;
     }
 
-    void endCompiler() noexcept
+    [[nodiscard]] Function& endCompiler() noexcept
     {
         emitReturn();
+
+        auto& func = compiler->function;
+
+        
+
         #ifdef DEBUG_PRINT_CODE
         if (!parser->hadError) 
         {
-            currentChunk().disassembleChunk("code");
+            currentChunk().disassembleChunk(compiler->function->getName().empty() ? compiler->function->getName() : "<script>");
         }
         #endif
+
+        return func;
     }
 
     // Error sychronization -
@@ -408,7 +437,7 @@ struct Compilation
         // This is the starting position of the bytecode for the while loop statement.
         // We want to jump back to this position, if the expression is true.
         // Note that we jump back to before the condition, to re-evaluate it.
-        auto loopStart = compilingChunk->count();
+        auto loopStart = currentChunk().count();
 
         // Consume the while '(...)' part. Evaluate the '...' expression aswell.
         parser->consume(TokenType::LeftParen, "Expect '(' after 'while'.");
@@ -467,7 +496,7 @@ struct Compilation
         }
         
         // The beginning of our loop (expr eval)
-        auto loopStart = compilingChunk->count();
+        auto loopStart = currentChunk().count();
   
         // Evaluating the expression that can be used to exit the loop.
         auto exitJump = -1;
@@ -500,7 +529,7 @@ struct Compilation
             auto bodyJump = emitJump(OpCode::JUMP);
 
             // This is where the expression for incrementing is.
-            auto incrementStart = compilingChunk->count();
+            auto incrementStart = currentChunk().count();
 
             // Compile expression for the side effects.
             // We don't care about the returned value
@@ -673,15 +702,15 @@ struct Compilation
     void patchJump(int offset)
     {
         // -2 to adjust for the bytecode for the jump offset itself
-        auto jump = compilingChunk->count() - offset - 2;
+        auto jump = currentChunk().count() - offset - 2;
 
         if (jump > UINT16_MAX)
         {
             error(*parser, "Too much code to jump over.");
         }
 
-        compilingChunk->code.at(offset) = (jump >> 8) & 0xff;
-        compilingChunk->code.at(offset + 1) = jump & 0xff;
+        currentChunk().code.at(offset) = (jump >> 8) & 0xff;
+        currentChunk().code.at(offset + 1) = jump & 0xff;
     }
 
     // Create a new constant and add it to the chunk.
@@ -795,9 +824,9 @@ struct Compilation
         // The compiler's local array will mirror the vm's stack
         // which means that the index can be directly grabbed from
         // here.
-        for (auto i = compiler.localCount - 1; i >= 0; i--)
+        for (auto i = compiler->localCount - 1; i >= 0; i--)
         {
-            auto& local = compiler.locals.at(i);
+            auto& local = compiler->locals.at(i);
             if (identifiersEqual(parser->previous.text, local.name))
             {
                 if (local.depth == -1)
@@ -899,15 +928,15 @@ struct Compilation
     {
         // If we are in global scope return.
         // This is only for local variables.
-        if (compiler.scopeDepth == 0) return;
+        if (compiler->scopeDepth == 0) return;
 
         auto name = parser->previous.text;
 
-        for (auto i = compiler.localCount - 1; i >= 0; i--)
+        for (auto i = compiler->localCount - 1; i >= 0; i--)
         {
-            assert(i < compiler.locals.size());
-            auto& local = compiler.locals[i];
-            if (local.depth != -1 && local.depth < compiler.scopeDepth)
+            assert(i < compiler->locals.size());
+            auto& local = compiler->locals[i];
+            if (local.depth != -1 && local.depth < compiler->scopeDepth)
             {
                 break;
             }
@@ -918,7 +947,7 @@ struct Compilation
             }
         }
 
-        // Add the local variable to the compiler.
+        // Add the local variable to the compiler->
         // This makes sure the compiler keeps track
         // of the existence of the variable.
         addLocal(name , *parser.get());
@@ -938,7 +967,7 @@ struct Compilation
         // meaning that there is no need to stuff them
         // int the constant table, if declaration is in 
         // scope, we just return a dummy table index.
-        if (compiler.scopeDepth > 0) return 0;
+        if (compiler->scopeDepth > 0) return 0;
 
         // If we made it here, it meant that we successfully
         // consumed an identifer token. We now want to add
@@ -951,7 +980,7 @@ struct Compilation
     // the current scope.
     void markInitialized()
     {
-        compiler.locals[compiler.localCount - 1].depth = static_cast<int>(compiler.scopeDepth);
+        compiler->locals[compiler->localCount - 1].depth = static_cast<int>(compiler->scopeDepth);
     }
 
     // Define the variable.
@@ -960,7 +989,7 @@ struct Compilation
     void defineVariable(uint8_t global)
     {
         // If we are in a scope, we do not want to define global.
-        if (compiler.scopeDepth > 0) 
+        if (compiler->scopeDepth > 0) 
         {
             markInitialized();
             return;
@@ -975,7 +1004,7 @@ struct Compilation
     // a new block has begun.
     void beginScope() noexcept
     {
-        compiler.scopeDepth++;
+        compiler->scopeDepth++;
     }
 
     // By decrementing the 
@@ -987,7 +1016,7 @@ struct Compilation
     {
         // End of scope.
         // We go back one scope.
-        compiler.scopeDepth--;
+        compiler->scopeDepth--;
 
         // Pop all the variables which are now out of scope.
         // The while loop crawls backwards on locals and
@@ -1015,26 +1044,26 @@ struct Compilation
         */
 
         // Check that variable count isn't 0.
-        while (compiler.localCount > 0 
+        while (compiler->localCount > 0 
             // Check that the current target variable has deeper depth than the current
             // deepest scope.
-            && compiler.locals[compiler.localCount - 1].depth > compiler.scopeDepth)
+            && compiler->locals[compiler->localCount - 1].depth > compiler->scopeDepth)
         {
             // Pop the value off the stack.
             emitByte(OpCode::POP);
 
             // One less variable.
-            compiler.localCount--;
+            compiler->localCount--;
         }
 
-       /* for (auto slot = 0; slot < compiler.localCount; ++slot)
+       /* for (auto slot = 0; slot < compiler->localCount; ++slot)
         {
-            std::cout << "{ " << compiler.locals[slot].name << " }";
+            std::cout << "{ " << compiler->locals[slot].name << " }";
         }
         std::cout << '\n';*/
     }
 
-    // Add local variable to the compiler.
+    // Add local variable to the compiler->
     void addLocal(std::string_view name, Parser& targetParser)
     {
 
@@ -1042,20 +1071,20 @@ struct Compilation
         // it means that we can only support 256 local
         // variables in scope at one time, so it must be
         // prevented.
-        if (compiler.localCount == UINT8_COUNT)
+        if (compiler->localCount == UINT8_COUNT)
         {
             error(targetParser, "Too many local variables declared in function.");
             return;
         }
 
-        assert(compiler.localCount < compiler.locals.size());
-        auto& local = compiler.locals[compiler.localCount++];
+        assert(compiler->localCount < compiler->locals.size());
+        auto& local = compiler->locals[compiler->localCount++];
         local.name = name;
         local.depth = -1;
 
-        /*for (auto slot = 0; slot < compiler.localCount; ++slot)
+        /*for (auto slot = 0; slot < compiler->localCount; ++slot)
         {
-            std::cout << "{ " << compiler.locals[slot].name << " }";
+            std::cout << "{ " << compiler->locals[slot].name << " }";
         }
         std::cout << '\n';*/
     }
