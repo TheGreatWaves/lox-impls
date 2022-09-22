@@ -53,10 +53,8 @@ public:
         if (func == nullptr) return InterpretResult::COMPILE_ERROR;
 
         push(func);
-        auto& frame = frames.at(frameCount++);
-        frame.function = func;
-        frame.ip = 0;
-        frame.slots = &stack;
+        CallFrame cf = { func, &stack, 0 };
+        frames.push_back(std::move(cf));
         
         return run();
     }
@@ -100,8 +98,7 @@ public:
                 }
                 std::cout << '\n';
 
-                frame
-                    frame.function.mChunk.disassembleInstruction(frame.ip);
+                frame.function->mChunk.disassembleInstruction(frame.ip);
 
                 
                 
