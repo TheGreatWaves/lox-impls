@@ -10,6 +10,7 @@
 #include <string_view>
 #include <variant>
 #include <memory>
+#include <sstream>
 
 // Forward Declarations
 struct FunctionObject;
@@ -30,6 +31,12 @@ std::ostream& operator<<(std::ostream& os, const Value& v);
 class Chunk
 {
 public:
+
+    Chunk() noexcept
+        : code(), lines(), constants()
+    {
+    }
+
     // Write instruction to chunk
     void write(uint8_t byte, std::size_t line) noexcept
     {
@@ -147,6 +154,7 @@ public:
             return constantInstruction(nameof(instr), offset);
         case OpCode::SET_LOCAL:
         case OpCode::GET_LOCAL:
+        case OpCode::CALL:
             return byteInstruction(nameof(instr), offset);
         case OpCode::JUMP:
         case OpCode::JUMP_IF_FALSE:
@@ -200,13 +208,25 @@ struct FunctionObject
     {
     }
 
-    const std::string_view getName() const
+    const std::string getName() const
     {
-        return mName;
+        if (mName.empty())
+        {
+            return "<script>";
+        }
+        else
+        {
+            std::stringstream ss;
+            ss << "<fn " << std::string(mName) << ">";
+            return ss.str();
+        }
     }
 
+
+
+
     int					mArity;
-    std::string_view	mName;
+    std::string	        mName;
     Chunk				mChunk;
 };
 
@@ -218,14 +238,7 @@ struct OutputVisitor {
     void operator()(const std::string& str) const { std::cout << str; }
     void operator()(const Function& func) const 
     { 
-        if (func->getName().empty())
-        {
-            std::cout << "<script>";
-        }
-        else
-        {
-            std::cout << "<fn " << func->getName() << ">";
-        }
+        std::cout << func->getName();
     }
 };
 

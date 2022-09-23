@@ -48,6 +48,8 @@ enum class OpCode : uint8_t
     JUMP,
     LOOP,
 
+    CALL,
+
 
     // Return op
     RETURN,
@@ -81,6 +83,7 @@ enum class OpCode : uint8_t
         case OpCode::JUMP_IF_FALSE: return "OP_JUMP_IF_FALSE";
         case OpCode::JUMP:      return "OP_JUMP";
         case OpCode::LOOP:      return "OP_LOOP";
+        case OpCode::CALL:      return "OP_CALL";
         default:                throw std::invalid_argument("UNEXPECTED OUTPUT");
     }
 }

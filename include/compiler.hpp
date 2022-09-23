@@ -17,7 +17,7 @@ void errorAt(Parser& parser, const Token token, std::string_view message) noexce
 void errorAtCurrent(Parser& parser, std::string_view message) noexcept;
 void error(Parser& parser, std::string_view message) noexcept;
 
-enum class FunctionType 
+enum class FunctionType
 {
     FUNCTION,
     SCRIPT
@@ -60,14 +60,14 @@ struct Parser
         : scanner(source), hadError(false), panicMode(false)
     {}
 
-  
+
     void advance() noexcept
     {
         // Store the current token.
         previous = current;
 
         // If valid simply return, else output error and scan next.
-        while(true)
+        while (true)
         {
             current = scanner.scanToken();
             if (current.type != TokenType::Error) break;
@@ -146,7 +146,7 @@ void error(Parser& parser, std::string_view message) noexcept
 //   depth of the block where the local
 //   variable was declared.
 struct Local
-{   
+{
     std::string_view    name;   // Name of local
     int                 depth;  // The depth level of local
 };
@@ -154,14 +154,28 @@ struct Local
 // The compiler will help us resolve local variables.
 struct Compiler
 {
-    Compiler(FunctionType type = FunctionType::SCRIPT)
+    Compiler(Parser& parser, FunctionType type = FunctionType::SCRIPT, std::unique_ptr<Compiler> enclosing = nullptr)
         : funcType(type)
+        , mEnclosing(std::move(enclosing))
+
     {
         function = std::make_shared<FunctionObject>(0, "");
+
+
+        if (type != FunctionType::SCRIPT)
+        {
+            function->mName = parser.previous.text;
+        }
 
         auto& local = locals[localCount++];
         local.depth = 0;
         local.name = "";
+    }
+
+    void markInitialized()
+    {
+        if (scopeDepth == 0) return;
+        locals.at(localCount).depth = static_cast<int>(scopeDepth);
     }
 
     Function function = nullptr;
@@ -170,6 +184,8 @@ struct Compiler
     std::array<Local, UINT8_COUNT>  locals;
     int                             localCount = 0;
     size_t                          scopeDepth = 0;
+
+    std::unique_ptr<Compiler>       mEnclosing;
 };
 
 // This is the struct containing
@@ -177,18 +193,20 @@ struct Compiler
 // used to compile the source code.
 struct Compilation
 {
-    Chunk* compilingChunk = nullptr;
 
-    std::unique_ptr<Compiler>  compiler;        
+    std::unique_ptr<Compiler>   compiler = nullptr;
     std::unique_ptr<Parser>     parser = nullptr;  // 
 
-    [[nodiscard]] Chunk& currentChunk() noexcept { return compiler->function->mChunk; }
+    [[nodiscard]] Chunk& currentChunk() noexcept 
+    {
+        return compiler->function->mChunk; 
+    }
 
-     // Write an OpCode byte to the chunk.
-     void emitByte(OpCode byte)
-     {
+    // Write an OpCode byte to the chunk.
+    void emitByte(OpCode byte)
+    {
         currentChunk().write(byte, parser->previous.line);
-     }
+    }
 
     // Write a byte to the chunk.
     void emitByte(uint8_t byte)
@@ -199,6 +217,7 @@ struct Compilation
     // Write the OpCode for return to the chunk.
     void emitReturn()
     {
+        emitByte(OpCode::NIL);
         emitByte(OpCode::RETURN);
     }
 
@@ -252,14 +271,14 @@ struct Compilation
         return static_cast<int>(currentChunk().count() - 2);
     }
 
-    std::shared_ptr<FunctionObject> compile(std::string_view code) 
+    std::shared_ptr<FunctionObject> compile(std::string_view code)
     {
         // Setup
         this->parser = std::make_unique<Parser>(code);
-        this->compiler = std::make_unique<Compiler>();
-        compilingChunk = &compiler->function->mChunk;
+        this->compiler = std::make_unique<Compiler>(*parser);
+        
 
-        // Compiling
+        //// Compiling
         parser->advance();
 
 
@@ -267,26 +286,28 @@ struct Compilation
         {
             declaration();
         }
-        
-        auto& func = endCompiler();
-        
-        return parser->hadError? nullptr: func;
+
+        auto func = endCompiler();
+        return parser->hadError ? nullptr : func;
     }
 
-    [[nodiscard]] Function& endCompiler() noexcept
+    [[nodiscard]] Function endCompiler() noexcept
     {
         emitReturn();
 
-        auto& func = compiler->function;
+        auto func = compiler->function;
 
-        
+
 
         #ifdef DEBUG_PRINT_CODE
-        if (!parser->hadError) 
+        if (!parser->hadError)
         {
             currentChunk().disassembleChunk(compiler->function->getName().empty() ? compiler->function->getName() : "<script>");
         }
         #endif
+
+        // Get the enclosing compiler.
+        this->compiler = std::move(this->compiler->mEnclosing);
 
         return func;
     }
@@ -312,21 +333,21 @@ struct Compilation
             if (parser->previous.type == TokenType::Semicolon) return;
 
             // If it is one of the keywords listed, we stop.
-            switch(parser->current.type)
+            switch (parser->current.type)
             {
-                case TokenType::Class:
-                case TokenType::Fun:
-                case TokenType::Var:
-                case TokenType::For:
-                case TokenType::If:
-                case TokenType::While:
-                case TokenType::Print:
-                case TokenType::Return:
-                    return;
-                default:
-                    ;   // Nothing
+            case TokenType::Class:
+            case TokenType::Fun:
+            case TokenType::Var:
+            case TokenType::For:
+            case TokenType::If:
+            case TokenType::While:
+            case TokenType::Print:
+            case TokenType::Return:
+                return;
+            default:
+                ;   // Nothing
             }
-            
+
             // No conditions met, keep advancing.
             parser->advance();
         }
@@ -378,6 +399,14 @@ struct Compilation
         defineVariable(global);
     }
 
+    void funDeclaration()
+    {
+        auto global = parseVariable("Expected function name.");
+        markInitialized();
+        function(FunctionType::FUNCTION);
+        defineVariable(global);
+    }
+
     void and_(bool)
     {
         auto endJump = emitJump(OpCode::JUMP_IF_FALSE);
@@ -400,11 +429,36 @@ struct Compilation
         patchJump(endJump);
     }
 
+    void call(bool)
+    {
+        auto argCount = argumentList();
+        emitByte(static_cast<uint8_t>(OpCode::CALL), argCount);
+    }
+
     void expressionStatement()
     {
         expression();
         parser->consume(TokenType::Semicolon, "Expect ';' after expression.");
         emitByte(OpCode::POP);
+    }
+
+    void returnStatement()
+    {
+        if (compiler->funcType == FunctionType::SCRIPT)
+        {
+            error(*parser, "Can't return from top-level code.");
+        }
+
+        if (match(TokenType::Semicolon))
+        {
+            emitReturn();
+        }
+        else
+        {
+            expression();
+            parser->consume(TokenType::Semicolon, "Expect ';' after return value.");
+            emitByte(OpCode::RETURN);
+        }
     }
 
     void ifStatement()
@@ -446,7 +500,7 @@ struct Compilation
 
         // Emit OpCode and place holder byte offset.
         int exitJump = emitJump(OpCode::JUMP_IF_FALSE);
-        
+
         // Pop the expressson off the stack (value discarded)
         // (This is executed when the loop is true)
         emitByte(OpCode::POP);
@@ -472,8 +526,8 @@ struct Compilation
 
         // We expect for ( init ; expr ; incr )
         parser->consume(TokenType::LeftParen, "Expect '(' after 'for'.");
-        
-       
+
+
         if (match(TokenType::Semicolon))
         {
             // No initializer : for(; ... ; ...)
@@ -492,12 +546,12 @@ struct Compilation
             // will also consume a ';'
             // and will pop the value off. for( i = 0 ; ... ; ...)
             // NOTE: Semi-colon is consumed.
-            expressionStatement(); 
+            expressionStatement();
         }
-        
+
         // The beginning of our loop (expr eval)
         auto loopStart = currentChunk().count();
-  
+
         // Evaluating the expression that can be used to exit the loop.
         auto exitJump = -1;
 
@@ -562,7 +616,7 @@ struct Compilation
 
         // Jump back to the beginning (expr)
         emitLoop(loopStart);
-        
+
         // Patch jump.
         // We do this only when there is a condition clause,
         // otherwise there is no jump to patch, and no condition
@@ -581,19 +635,23 @@ struct Compilation
     void declaration()
     {
         // Match variable token.
-        if (match(TokenType::Var))
+        if (match(TokenType::Fun))
+        {
+            funDeclaration();
+        }
+        else if (match(TokenType::Var))
         {
             // After the var token is consumed, we need
             // to parse for the variable name and value
             varDeclaration();
         }
-        else 
+        else
         {
             // If it isn't a variable
             // it must be a statement.
             statement();
         }
-        
+
         // Synchronize error after compile-error
         if (parser->panicMode) synchronize();
     }
@@ -617,6 +675,41 @@ struct Compilation
         // to complete the process.
         parser->consume(TokenType::RightBrace, "Expect '}': no matching token found.");
 
+    }
+
+    void function(FunctionType type)
+    {
+
+        // Link member compiler to the new one.
+        this->compiler = std::make_unique<Compiler>(*this->parser, type, std::move(std::move(this->compiler)));
+        beginScope();
+
+        parser->consume(TokenType::LeftParen, "Expect '(' after function name.");
+
+        // Parameters
+        if (!parser->check(TokenType::RightParen))
+        {
+            do
+            {
+                compiler->function->mArity++;
+                if (compiler->function->mArity > 255)
+                {
+                    errorAtCurrent(*parser, "Can't have more than 255 parameters.");
+                }
+                auto constant = parseVariable("Expect parameter name.");
+                defineVariable(constant);
+            } while (match(TokenType::Comma));
+        }
+
+        parser->consume(TokenType::RightParen, "Expect ')' after parameters.");
+        parser->consume(TokenType::LeftBrace, "Expect '{' before function body.");
+
+        block();
+
+        // Revert back to the previous compiler.
+        auto func = endCompiler();
+
+        emitByte(static_cast<uint8_t>(OpCode::CONSTANT), makeConstant(func));
     }
 
     // Parse statements.
@@ -644,6 +737,10 @@ struct Compilation
         else if (match(TokenType::If))
         {
             ifStatement();
+        }
+        else if (match(TokenType::Return))
+        {
+            returnStatement();
         }
         else if (match(TokenType::While))
         {
@@ -674,7 +771,7 @@ struct Compilation
         // for print.
         emitByte(OpCode::PRINT);
     }
-    
+
     // Check if current token matches the current token,
     // if it does, consume it.
     [[nodiscard]] bool match(TokenType type) noexcept
@@ -682,7 +779,7 @@ struct Compilation
         // If the current token is not the expected type
         // return false.
         if (!parser->check(type)) return false;
-        
+
         // If it was expected, consume it.
         parser->advance();
         return true;
@@ -746,11 +843,11 @@ struct Compilation
         parsePrecedence(Precedence::Unary);
 
         // Emit the operator instruction
-        switch(operatorType)
+        switch (operatorType)
         {
-            case TokenType::Minus:  emitByte(OpCode::NEGATE); break;
-            case TokenType::Bang:   emitByte(OpCode::NOT); break;
-            default: return; // Unreachable
+        case TokenType::Minus:  emitByte(OpCode::NEGATE); break;
+        case TokenType::Bang:   emitByte(OpCode::NOT); break;
+        default: return; // Unreachable
         }
     }
 
@@ -765,29 +862,29 @@ struct Compilation
         // Emit the corresponding opcode
         switch (operatorType)
         {
-            case TokenType::BangEqual:      emitByte(OpCode::EQUAL, OpCode::NOT); break;
-            case TokenType::EqualEqual:     emitByte(OpCode::EQUAL); break;
-            case TokenType::Greater:        emitByte(OpCode::GREATER); break;
-            case TokenType::GreaterEqual:   emitByte(OpCode::LESS, OpCode::NOT); break;
-            case TokenType::Less:           emitByte(OpCode::LESS); break;
-            case TokenType::LessEqual:      emitByte(OpCode::GREATER, OpCode::NOT); break;
+        case TokenType::BangEqual:      emitByte(OpCode::EQUAL, OpCode::NOT); break;
+        case TokenType::EqualEqual:     emitByte(OpCode::EQUAL); break;
+        case TokenType::Greater:        emitByte(OpCode::GREATER); break;
+        case TokenType::GreaterEqual:   emitByte(OpCode::LESS, OpCode::NOT); break;
+        case TokenType::Less:           emitByte(OpCode::LESS); break;
+        case TokenType::LessEqual:      emitByte(OpCode::GREATER, OpCode::NOT); break;
 
-            case TokenType::Plus:           emitByte(OpCode::ADD); break;
-            case TokenType::Minus:          emitByte(OpCode::SUBTRACT); break;
-            case TokenType::Star:           emitByte(OpCode::MULTIPLY); break;
-            case TokenType::Slash:          emitByte(OpCode::DIVIDE); break;
-            default: return; // Unreachable
+        case TokenType::Plus:           emitByte(OpCode::ADD); break;
+        case TokenType::Minus:          emitByte(OpCode::SUBTRACT); break;
+        case TokenType::Star:           emitByte(OpCode::MULTIPLY); break;
+        case TokenType::Slash:          emitByte(OpCode::DIVIDE); break;
+        default: return; // Unreachable
         }
     }
 
     void literal(bool)
     {
-        switch(parser->previous.type)
+        switch (parser->previous.type)
         {
-            case TokenType::False: emitByte(OpCode::FALSE); break;
-            case TokenType::Nil: emitByte(OpCode::NIL); break;
-            case TokenType::True: emitByte(OpCode::TRUE); break;
-            default: return; // Unreachable
+        case TokenType::False: emitByte(OpCode::FALSE); break;
+        case TokenType::Nil: emitByte(OpCode::NIL); break;
+        case TokenType::True: emitByte(OpCode::TRUE); break;
+        default: return; // Unreachable
         }
     }
 
@@ -881,7 +978,7 @@ struct Compilation
     {
         // Consume the first token.
         parser->advance();
-        
+
         // Get the type of the token.
         auto type = parser->previous.type;
 
@@ -916,7 +1013,7 @@ struct Compilation
     // and return the index at which is is added in the constant table.
     [[nodiscard]] uint8_t identifierConstant() noexcept
     {
-        return makeConstant({std::string(parser->previous.text)});
+        return makeConstant({ std::string(parser->previous.text) });
     }
 
     [[nodiscard]] bool identifiersEqual(std::string_view str1, std::string_view str2) const noexcept
@@ -950,7 +1047,7 @@ struct Compilation
         // Add the local variable to the compiler->
         // This makes sure the compiler keeps track
         // of the existence of the variable.
-        addLocal(name , *parser.get());
+        addLocal(name, *parser.get());
     }
 
     // Parses the variable's name.
@@ -958,7 +1055,7 @@ struct Compilation
     {
         // We expect the token after 'var' to be an identifer.
         parser->consume(TokenType::Identifier, message);
-        
+
         // Declare the variable
         declareVariable();
 
@@ -980,7 +1077,11 @@ struct Compilation
     // the current scope.
     void markInitialized()
     {
-        compiler->locals[compiler->localCount - 1].depth = static_cast<int>(compiler->scopeDepth);
+        if (compiler->scopeDepth == 0)
+        {
+            return;
+        }
+        compiler->locals.at(compiler->localCount - 1).depth = static_cast<int>(compiler->scopeDepth);
     }
 
     // Define the variable.
@@ -989,14 +1090,33 @@ struct Compilation
     void defineVariable(uint8_t global)
     {
         // If we are in a scope, we do not want to define global.
-        if (compiler->scopeDepth > 0) 
+        if (compiler->scopeDepth > 0)
         {
             markInitialized();
             return;
         }
-        
+
         // emit the OpCode and the index of the name. (in chunk's constants)
         emitByte(static_cast<uint8_t>(OpCode::DEFINE_GLOBAL), global);
+    }
+
+    uint8_t argumentList()
+    {
+        uint8_t argCount = 0;
+        if (!parser->check(TokenType::RightParen))
+        {
+            do 
+            {
+                expression();
+                if (argCount == 255)
+                {
+                    error(*parser, "Can't have more than 255 arguments.");
+                }
+                argCount++;
+            } while (match(TokenType::Comma));
+        }
+        parser->consume(TokenType::RightParen, "Expect ')' after arguments.");
+        return argCount;
     }
 
     // By incrementing the
@@ -1023,14 +1143,14 @@ struct Compilation
         // keeps popping the variables off the stack until
         // it reaches a local variable which has the same 
         // depth as the current depth being evaluated.
-        
+
         // This works beautifully thanks to the fact that
         // variables in the 'locals' array are nicely grouped 
         // together, and that the depth attribute is incrementing
         // uniformly with each subsequent group.
 
         /* i.e:
-                                                                                                                       
+
             var greeting;
             var message;
             {
@@ -1044,7 +1164,7 @@ struct Compilation
         */
 
         // Check that variable count isn't 0.
-        while (compiler->localCount > 0 
+        while (compiler->localCount > 0
             // Check that the current target variable has deeper depth than the current
             // deepest scope.
             && compiler->locals[compiler->localCount - 1].depth > compiler->scopeDepth)
@@ -1056,11 +1176,11 @@ struct Compilation
             compiler->localCount--;
         }
 
-       /* for (auto slot = 0; slot < compiler->localCount; ++slot)
-        {
-            std::cout << "{ " << compiler->locals[slot].name << " }";
-        }
-        std::cout << '\n';*/
+        /* for (auto slot = 0; slot < compiler->localCount; ++slot)
+         {
+             std::cout << "{ " << compiler->locals[slot].name << " }";
+         }
+         std::cout << '\n';*/
     }
 
     // Add local variable to the compiler->
@@ -1101,10 +1221,11 @@ struct Compilation
         auto variable = [this](bool canAssign) { this->variable(canAssign); };
         auto and_ = [this](bool canAssign) { this->and_(canAssign); };
         auto or_ = [this](bool canAssign) { this->or_(canAssign); };
-        
-        static ParseRule rls[] = 
+        auto call = [this](bool canAssign) { this->call(canAssign); };
+
+        static ParseRule rls[] =
         {
-            {grouping,      nullptr,    Precedence::None},     // TokenType::LEFT_PAREN
+            {grouping,      call,       Precedence::Call},     // TokenType::LEFT_PAREN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::RIGHT_PAREN
             {nullptr,       nullptr,    Precedence::None},      // TokenType::LEFT_BRACE
             {nullptr,       nullptr,    Precedence::None},      // TokenType::RIGHT_BRACE

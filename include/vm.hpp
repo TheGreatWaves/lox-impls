@@ -8,19 +8,47 @@
 // https://en.cppreference.com/w/cpp/utility/variant/visit
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 
+
+class VM;
+struct CallFrame;
+enum class InterpretResult;
+
 // Max number of elements in the stack
-
-
 constexpr uint8_t FRAMES_MAX = 64;
 constexpr std::size_t STACK_MAX = FRAMES_MAX * UINT8_COUNT;
 
 struct CallFrame
 {
     Function  function;
-
-    std::vector<Value>    *slots;                  // Byte code vector
+    std::size_t     valueOffset;           // Offset to the values
     std::size_t     ip;                    // Position in the code
 
+
+    [[nodiscard]] uint8_t readByte()
+    {
+        return chunk().code.at(ip++);
+    }
+
+    [[nodiscard]] uint16_t readShort()
+    {
+        ip += 2;
+        return static_cast<uint16_t>(chunk().code.at(ip - 2) | chunk().code.at(ip - 1));
+    }
+
+    [[nodiscard]] const Value& readConstant()
+    {
+        return chunk().constants.at(readByte());;
+    }
+
+    [[nodiscard]] const std::string& readString()
+    {
+        return std::get<std::string>(readConstant());
+    }
+
+    [[nodiscard]] const Chunk& chunk() noexcept
+    {
+        return function->mChunk;
+    }
 };
 
 
@@ -37,7 +65,28 @@ class VM
 {
 
 private:
+    struct CallVisitor
+    {
+        CallVisitor(VM& vm, uint8_t argCount)
+            : vm(&vm)
+            , argc(argCount)
+        {
+        }
 
+        [[nodiscard]] bool operator()(const Function& f) noexcept
+        {
+            return vm->call(f, argc);
+        }
+
+        [[nodiscard]] bool operator()(const auto& ) noexcept
+        {
+            vm->runTimeError("Can only call functions and classes.");
+            return false;
+        }
+
+        VM* vm;
+        uint8_t argc;
+    };
 public:
     // Ctor.
     VM() 
@@ -49,13 +98,12 @@ public:
     // Interpret source
     InterpretResult interpret(std::string_view code)
     {
-        auto func = cu.compile(code);
+        const auto& func = cu.compile(code);
         if (func == nullptr) return InterpretResult::COMPILE_ERROR;
 
         push(func);
-        CallFrame cf = { func, &stack, 0 };
-        frames.push_back(std::move(cf));
-        
+        call(func, 0);
+ 
         return run();
     }
 
@@ -63,29 +111,7 @@ public:
     // Run the interpreter on the chunk
     [[nodiscard]] InterpretResult run()
     {
-        CallFrame& frame = frames.back();
         
-        auto readByte = [&]() -> uint8_t
-        {
-            return frame.function->mChunk.code.at(frame.ip++);
-        };
-
-        auto readShort = [&]() -> uint16_t {
-            frame.ip += 2;
-            auto& code = frame.function->mChunk.code;
-            return static_cast<uint16_t>(code.at(frame.ip - 2) | code.at(frame.ip - 1));
-        };
-
-        auto readConstant = [&]() -> Value&
-        {
-            return frame.function->mChunk.constants.at(readByte());
-        };
-
-        auto readString = [&]() -> std::string&
-        {
-            return std::get<std::string>(readConstant());
-        };
-
         while(true)
         {
             // Print instruction before executing it (debug)
@@ -98,7 +124,7 @@ public:
                 }
                 std::cout << '\n';
 
-                frame.function->mChunk.disassembleInstruction(frame.ip);
+                frames.back().function->mChunk.disassembleInstruction(frames.back().ip);
 
                 
                 
@@ -116,7 +142,7 @@ public:
 
          
             // read the current byte and increment the
-            auto byte = readByte();
+            auto byte = frames.back().readByte();
             auto instruction = static_cast<OpCode>(byte);
             switch (instruction)
             {
@@ -139,6 +165,42 @@ public:
                         pop();
                         pop();
                         push(s1 + s2);
+                        return true;
+                    },
+
+                    // TEMP 
+                    // Handle implicit number -> str
+                    [this](double s1, std::string s2) -> bool
+                    {
+                        pop();
+                        pop();
+
+
+                        if (std::fmod(s1, 1.0) == 0)
+                        {
+                            push(std::to_string(static_cast<int>(s1)) + s2);
+                        }
+                        else
+                        {
+                            push(std::to_string(s1) + s2);
+                        }
+                        return true;
+                    },
+
+                    [this](std::string s1, double s2) -> bool
+                    {
+                        pop();
+                        pop();
+
+                        if (std::fmod(s2, 1.0) == 0)
+                        {
+                            push(s1 + std::to_string(static_cast<int>(s2)));
+                        }
+                        else
+                        {
+                            push(s1 + std::to_string(s2));
+                        }
+                        
                         return true;
                     },
 
@@ -184,7 +246,7 @@ public:
             }
             case OpCode::CONSTANT:
             {
-                auto constant = readConstant();
+                auto& constant = frames.back().readConstant();
                 push(constant);
                 break;
             }
@@ -194,7 +256,7 @@ public:
             case OpCode::POP:       pop(); break;
             case OpCode::GET_GLOBAL:
             {
-                auto name = readString();
+                auto name = frames.back().readString();
 
                 if (auto found = globals.find(name); found == globals.end())
                 {
@@ -219,7 +281,7 @@ public:
                 // which calls it will never
                 // emit an instruction that 
                 // refers to a non string constant.
-                auto& name = readString();
+                auto& name = frames.back().readString();
 
                 // Assign the global variable 
                 // name with the value and pop 
@@ -229,7 +291,7 @@ public:
             }
             case OpCode::SET_GLOBAL:
             {
-                auto name = readString();
+                auto name = frames.back().readString();
 
                 if (auto found = globals.find(name); found == globals.end())
                 {
@@ -248,17 +310,17 @@ public:
             {
                 // Get the index of the local
                 // variable called for
-                auto slot = readByte();
+                auto slot = frames.back().readByte();
 
                 // Push the value onto 
                 // the top of the stack.
-                push(frame.slots->at(slot));
+                push(stack.at(slot + frames.back().valueOffset));
                 break;
             }
             case OpCode::SET_LOCAL:
             {
-                auto slot = readByte();
-                frame.slots->at(slot) = peek();
+                auto slot = frames.back().readByte();
+                stack.at(slot + frames.back().valueOffset) = peek();
                 break;
             }
             case OpCode::EQUAL:
@@ -272,32 +334,60 @@ public:
             case OpCode::LESS:      BINARY_OP(<); break;
             case OpCode::JUMP_IF_FALSE:
             {
-                auto offset = readShort();
+                auto offset = frames.back().readShort();
                 if (isFalsey(peek(0))) 
                 {
-                    frame.ip += offset;
+                    frames.back().ip += offset;
                 }
                 break;
             }
             case OpCode::JUMP:
             {
-                auto offset = readShort();
-                frame.ip += offset;
+                auto offset = frames.back().readShort();
+                frames.back().ip += offset;
                 break;
             }
             case OpCode::LOOP:
             {
                 // Read the offset (Beginning of the statement nested inside loop)
-                auto offset = readShort();
+                auto offset = frames.back().readShort();
 
                 // Jump to it
-                frame.ip -= offset;
+                frames.back().ip -= offset;
+                break;
+            }
+            case OpCode::CALL:
+            {
+                auto argCount = static_cast<uint8_t>(frames.back().readByte());
+
+                if (!callValue(peek(argCount), argCount))
+                {
+                    return InterpretResult::RUNTIME_ERROR;
+                }
+
                 break;
             }
             case OpCode::RETURN:
             {
-                // Exit interpreter
-                return InterpretResult::OK;
+                const auto& result = pop();
+                
+                auto latestOffset = frames.back().valueOffset;
+              
+                // This will implicitly
+                // traverse back one callframe.
+                frames.pop_back();
+
+                
+                if (frameCount() == 0)
+                {
+                    pop();
+                    return InterpretResult::OK;
+                }
+
+                stack.resize(latestOffset);
+                stack.reserve(STACK_MAX);
+                push(result);
+                break;
             }
             }
             
@@ -310,7 +400,9 @@ public:
     void resetStack() noexcept
     {
         // Reset frame
-        frameCount = 0;
+        frames.clear();
+        stack.clear();
+        stack.reserve(STACK_MAX);
     }
 
     void push(const Value& value) noexcept
@@ -328,6 +420,34 @@ public:
     [[nodiscard]] const Value& peek(std::size_t offset = 0) const
     {
         return stack.at(stack.size() - 1 - offset);
+    }
+
+    [[nodiscard]] bool callValue(const Value& callee, uint8_t argCount)
+    {
+        return std::visit(CallVisitor(*this, argCount), callee);
+    }
+
+    bool call(Function function, uint8_t argCount)
+    {
+        // Check to see if the number of arguments passed in
+        // is sufficient
+        if (argCount != function->mArity)
+        {
+            runTimeError("Expected ", function->mArity, " arguments but got ", static_cast<int>(argCount), ".");
+            return false;
+        }
+
+        // Handle stack overflow
+        if (frameCount() == FRAMES_MAX)
+        {
+            runTimeError("Stack overflow.");
+            return false;
+        }
+
+        auto offset = stack.size() - 1 - argCount;
+        frames.emplace_back(function, offset, 0);
+
+        return true;
     }
 
 private:
@@ -375,16 +495,20 @@ private:
         (std::cerr << ... << std::forward<Args>(args));
         std::cerr << '\n';
 
-        auto& frame = frames.back();
-        auto instr = frame.ip;
-        const auto line = frame.function->mChunk.lines.at(instr);
-        std::cerr << "[line " << line << "] in script\n";
+        for (size_t i = frameCount(); i-- > 0;)
+        {
+            const auto& frame = frames.at(i);
+            auto& func = frame.function;
+            auto line = func->mChunk.lines.at(frame.ip - 1);
+            std::cerr << "[line " << line << "] in " << func->getName() << '\n';
+        }
         resetStack();
     }
 
+    std::size_t frameCount() { return frames.size(); }
+
 private:
     std::vector<CallFrame>      frames;
-    int                         frameCount;
     
     std::vector<Value>          stack;                  
 
@@ -394,3 +518,4 @@ private:
 
     std::unordered_map<std::string, Value> globals; // Global variables;
 };
+
