@@ -682,8 +682,11 @@ struct Compilation
 
         // Link member compiler to the new one.
         this->compiler = std::make_unique<Compiler>(*this->parser, type, std::move(std::move(this->compiler)));
+        
+        // Begin the new scope (function scope).
         beginScope();
 
+        // Consume left paren after function name.
         parser->consume(TokenType::LeftParen, "Expect '(' after function name.");
 
         // Parameters
@@ -691,19 +694,26 @@ struct Compilation
         {
             do
             {
+                // Increment argc.
                 compiler->function->mArity++;
                 if (compiler->function->mArity > 255)
                 {
                     errorAtCurrent(*parser, "Can't have more than 255 parameters.");
                 }
+
+                // Declare variables and get a dummy constant.
                 auto constant = parseVariable("Expect parameter name.");
+
+                // Define variables local to function scope.
                 defineVariable(constant);
+
             } while (match(TokenType::Comma));
         }
 
         parser->consume(TokenType::RightParen, "Expect ')' after parameters.");
         parser->consume(TokenType::LeftBrace, "Expect '{' before function body.");
 
+        // Compile the function body.
         block();
 
         // Revert back to the previous compiler.

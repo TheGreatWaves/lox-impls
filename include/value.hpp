@@ -11,13 +11,18 @@
 #include <variant>
 #include <memory>
 #include <sstream>
+#include <functional>
+
+
 
 // Forward Declarations
 struct FunctionObject;
+struct NativeFunctionObject;
 using Function = std::shared_ptr<FunctionObject>;
+using NativeFunction = std::shared_ptr<NativeFunctionObject>;
 
 // A value is simply a variant
-using Value = std::variant<double, bool, std::monostate, std::string, Function>;
+using Value = std::variant<double, bool, std::monostate, std::string, Function, NativeFunction>;
 
 // Defining aliases
 using LineVector = std::vector<std::size_t>;
@@ -223,11 +228,16 @@ struct FunctionObject
     }
 
 
-
-
     int					mArity;
     std::string	        mName;
     Chunk				mChunk;
+};
+
+using NativeFn = std::function <Value(int argc, std::vector<Value>::iterator)>;
+
+struct NativeFunctionObject
+{
+    NativeFn fn;
 };
 
 // Defined and overloaded for std::visit
@@ -236,10 +246,9 @@ struct OutputVisitor {
     void operator()(const bool b) const { std::cout << (b ? "true" : "false"); }
     void operator()(const std::monostate) const { std::cout << "nil"; }
     void operator()(const std::string& str) const { std::cout << str; }
-    void operator()(const Function& func) const 
-    { 
-        std::cout << func->getName();
-    }
+    void operator()(const Function& func) const { std::cout << func->getName(); }
+    void operator()(const NativeFunction&) const { std::cout << "<native fn>"; }
+
 };
 
 

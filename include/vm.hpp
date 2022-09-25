@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <chrono>
 
 #include "value.hpp"
 #include "compiler.hpp"
@@ -51,6 +52,25 @@ struct CallFrame
     }
 };
 
+// Defining native functions
+static Value clockNative(int, std::vector<Value>::iterator) 
+{
+    return (double)clock() / CLOCKS_PER_SEC;
+}
+
+static Value inputNative(int, std::vector<Value>::iterator)
+{
+    std::string input;
+    std::getline(std::cin, input);
+
+    if (std::isdigit(input.at(0)))
+    {
+        return std::stod(input);
+    }
+
+    return input;
+}
+
 
 // The result of the interpretation
 enum class InterpretResult
@@ -78,6 +98,16 @@ private:
             return vm->call(f, argc);
         }
 
+        [[nodiscard]] bool operator()(const NativeFunction& f) noexcept
+        {
+            auto result = f->fn(argc, vm->stack.end() - argc);
+            vm->stack.resize(vm->stack.size() - 1 - argc);
+            vm->stack.reserve(STACK_MAX);
+            vm->push(result);
+            return true;
+        }
+
+
         [[nodiscard]] bool operator()(const auto& ) noexcept
         {
             vm->runTimeError("Can only call functions and classes.");
@@ -93,7 +123,11 @@ public:
     {
         // Clean state.
         resetStack();
+
+        // Define native functions.
+        defineNativeFunctions();
     }
+
 
     // Interpret source
     InterpretResult interpret(std::string_view code)
@@ -503,6 +537,28 @@ private:
             std::cerr << "[line " << line << "] in " << func->getName() << '\n';
         }
         resetStack();
+    }
+
+    void defineNative(const std::string& name, NativeFn fn)
+    {
+        // Create object
+        auto nativeObj = std::make_shared<NativeFunctionObject>();
+
+        // Attatch the native function
+        nativeObj->fn = fn;
+        
+        // Assign the native function to global.
+        globals[name] = nativeObj;
+    }
+
+    void defineNativeFunctions()
+    {
+        // Defining clock.
+        defineNative("clock", clockNative);
+
+        // Defining input
+        defineNative("input", inputNative);
+
     }
 
     std::size_t frameCount() { return frames.size(); }
