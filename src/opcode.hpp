@@ -1,7 +1,7 @@
 #pragma once
 
-#include <string_view>
-#include <stdexcept>
+#include "common.hpp"
+
 
 // Enums of instructions supported
 enum class OpCode : uint8_t
@@ -55,7 +55,7 @@ enum class OpCode : uint8_t
     RETURN,
 };
 
-[[nodiscard]] std::string_view nameof(OpCode code)
+[[nodiscard]] inline std::string_view nameof(OpCode code)
 {
     switch (code)
     {
@@ -88,8 +88,4 @@ enum class OpCode : uint8_t
     }
 }
 
-std::ostream& operator<<(std::ostream& out, OpCode code)
-{
-	out << nameof(code);
-	return out;
-}
+std::ostream& operator<<(std::ostream& out, OpCode code);
