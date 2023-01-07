@@ -908,9 +908,9 @@ void Compilation::declareVariable()
 
 	for (auto i = compiler->localCount - 1; i >= 0; i--)
 	{
-		assert(i < compiler->locals.size());
+		assert(i < static_cast<int>(compiler->locals.size()));
 		auto& local = compiler->locals[i];
-		if (local.depth != -1 && local.depth < compiler->scopeDepth)
+		if (local.depth != -1 && local.depth < static_cast<int>(compiler->scopeDepth))
 		{
 			break;
 		}
@@ -1030,7 +1030,7 @@ void Compilation::endScope() noexcept
 	while (compiler->localCount > 0
 		// Check that the current target variable has deeper depth than the current
 		// deepest scope.
-		&& compiler->locals[compiler->localCount - 1].depth > compiler->scopeDepth)
+		&& compiler->locals[compiler->localCount - 1].depth > static_cast<int>(compiler->scopeDepth))
 	{
 		// Pop the value off the stack.
 		emitByte(OpCode::POP);
@@ -1059,7 +1059,7 @@ void Compilation::addLocal(const std::string_view name, Parser& targetParser) co
 		return;
 	}
 
-	assert(compiler->localCount < compiler->locals.size());
+	assert(compiler->localCount < static_cast<int>(compiler->locals.size()));
 	auto& local = compiler->locals[compiler->localCount++];
 	local.name = name;
 	local.depth = -1;

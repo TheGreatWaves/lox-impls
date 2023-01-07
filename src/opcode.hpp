@@ -2,88 +2,51 @@
 
 #include "common.hpp"
 
+#define OpCodes(DO) \
+ DO(CONSTANT) \
+ DO(NIL) \
+ DO(TRUE) \
+ DO(FALSE) \
+ DO(POP) \
+ DO(DEFINE_GLOBAL) \
+ DO(GET_GLOBAL) \
+ DO(SET_GLOBAL) \
+ DO(SET_LOCAL) \
+ DO(GET_LOCAL) \
+ DO(EQUAL) \
+ DO(GREATER) \
+ DO(LESS) \
+ DO(ADD) \
+ DO(SUBTRACT) \
+ DO(MULTIPLY) \
+ DO(DIVIDE) \
+ DO(NEGATE) \
+ DO(NOT) \
+ DO(PRINT) \
+ DO(JUMP_IF_FALSE) \
+ DO(JUMP) \
+ DO(LOOP) \
+ DO(CALL) \
+ DO(RETURN)
 
 // Enums of instructions supported
+
+#define DEFINE_ENUMERATION(opcode) opcode,
+
 enum class OpCode : uint8_t
 {
-    // Constant literal
-    CONSTANT,
-
-    // Values of literals
-    NIL,
-    TRUE,
-    FALSE,
-
-    // Pop value off stack, for evaluating expr
-    POP,
-
-    // 1. Define global variable
-    // 2. Get global variable
-    DEFINE_GLOBAL,
-    GET_GLOBAL,
-    SET_GLOBAL,
-
-    SET_LOCAL,
-    GET_LOCAL,
-
-    // Value comparison ops
-    EQUAL,
-    GREATER,
-    LESS,
-
-    // Binary ops
-    ADD,
-    SUBTRACT,
-    MULTIPLY,
-    DIVIDE,
-
-    // Unary ops
-    NEGATE,
-    NOT,
-
-    PRINT,
-    
-    // PROGRAM FLOW
-    JUMP_IF_FALSE,
-    JUMP,
-    LOOP,
-
-    CALL,
-
-
-    // Return op
-    RETURN,
+    OpCodes( DEFINE_ENUMERATION )
 };
+
+#define STR_MAKER(X) #X
+#define STR_HELPER(X) STR_MAKER(OP_##X)
+#define DEF_OPCODE_TO_STR(opcode) case OpCode::##opcode: return STR_HELPER( opcode ); 
 
 [[nodiscard]] inline std::string_view nameof(OpCode code)
 {
     switch (code)
     {
-        case OpCode::CONSTANT:  return "OP_CONSTANT";
-        case OpCode::RETURN:    return "OP_RETURN";
-        case OpCode::NEGATE:    return "OP_NEGATE";
-        case OpCode::ADD:       return "OP_ADD";
-        case OpCode::SUBTRACT:  return "OP_SUBTRACT";
-        case OpCode::MULTIPLY:  return "OP_MULTIPLY";
-        case OpCode::DIVIDE:    return "OP_DIVIDE";
-        case OpCode::TRUE:      return "OP_TRUE";
-        case OpCode::FALSE:     return "OP_FALSE";
-        case OpCode::NIL:       return "OP_NIL";
-        case OpCode::NOT:       return "OP_NOT";
-        case OpCode::EQUAL:     return "OP_EQUAL";
-        case OpCode::GREATER:   return "OP_GREATER";
-        case OpCode::LESS:      return "OP_LESS";
-        case OpCode::PRINT:     return "OP_PRINT";
-        case OpCode::POP:       return "OP_POP";
-        case OpCode::DEFINE_GLOBAL: return "OP_DEFINE_GLOBAL";
-        case OpCode::GET_GLOBAL: return "OP_GET_GLOBAL";
-        case OpCode::SET_GLOBAL: return "OP_SET_GLOBAL";
-        case OpCode::SET_LOCAL: return "OP_SET_LOCAL";
-        case OpCode::GET_LOCAL: return "OP_GET_LOCAL";
-        case OpCode::JUMP_IF_FALSE: return "OP_JUMP_IF_FALSE";
-        case OpCode::JUMP:      return "OP_JUMP";
-        case OpCode::LOOP:      return "OP_LOOP";
-        case OpCode::CALL:      return "OP_CALL";
+        OpCodes ( DEF_OPCODE_TO_STR )
         default:                throw std::invalid_argument("UNEXPECTED OUTPUT");
     }
 }
