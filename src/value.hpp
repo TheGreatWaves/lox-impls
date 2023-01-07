@@ -6,11 +6,13 @@
 // Forward Declarations
 struct FunctionObject;
 struct NativeFunctionObject;
+struct ClosureObject;
 using Function = std::shared_ptr<FunctionObject>;
 using NativeFunction = std::shared_ptr<NativeFunctionObject>;
+using Closure = std::shared_ptr<ClosureObject>;
 
 // A value is simply a variant
-using Value = std::variant<double, bool, std::monostate, std::string, Function, NativeFunction>;
+using Value = std::variant<double, bool, std::monostate, std::string, Function, NativeFunction, Closure>;
 
 // Defining aliases
 using LineVector = std::vector<std::size_t>;
@@ -35,7 +37,7 @@ public:
     // Write opcode instruction to chunk
     void write(OpCode opcode, std::size_t line);
 
-    // Disassembles a given chunk
+    // Disassembles the chunk
     void disassembleChunk(std::string_view name) noexcept;
 
 
@@ -105,6 +107,16 @@ struct NativeFunctionObject
     NativeFn fn;
 };
 
+
+struct ClosureObject
+{
+    Function fn;
+
+    explicit ClosureObject(Function fn)
+        : fn{ fn }
+        {}
+};
+
 // Defined and overloaded for std::visit
 struct OutputVisitor {
     void operator()(const double d) const { std::cout << d; }
@@ -113,7 +125,7 @@ struct OutputVisitor {
     void operator()(const std::string& str) const { std::cout << str; }
     void operator()(const Function& func) const { std::cout << func->getName(); }
     void operator()(const NativeFunction&) const { std::cout << "<native fn>"; }
-
+    void operator()(const Closure& c) const { std::cout << c->fn; }
 };
 
 

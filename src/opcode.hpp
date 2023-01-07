@@ -27,6 +27,7 @@
  DO(JUMP) \
  DO(LOOP) \
  DO(CALL) \
+ DO(CLOSURE) \
  DO(RETURN)
 
 // Enums of instructions supported
@@ -47,7 +48,7 @@ enum class OpCode : uint8_t
     switch (code)
     {
         OpCodes ( DEF_OPCODE_TO_STR )
-        default:                throw std::invalid_argument("UNEXPECTED OUTPUT");
+        default: throw std::invalid_argument("UNEXPECTED OUTPUT");
     }
 }
 

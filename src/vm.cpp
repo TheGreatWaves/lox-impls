@@ -23,7 +23,7 @@ const std::string& CallFrame::readString()
 
 const Chunk& CallFrame::chunk() const noexcept
 {
-	return function->mChunk;
+	return closure->fn->mChunk;
 }
 
 
@@ -50,14 +50,15 @@ Value inputNative(int, std::vector<Value>::iterator)
 	return input;
 }
 
-VM::CallVisitor::CallVisitor(VM& vm, uint8_t argCount): vm(&vm)
-                                                      , argc(argCount)
+VM::CallVisitor::CallVisitor(VM& vm, uint8_t argCount)
+	: vm(&vm)
+	, argc(argCount)
 {
 }
 
-bool VM::CallVisitor::operator()(const Function& f) noexcept
+bool VM::CallVisitor::operator()(const Closure& c) noexcept
 {
-	return vm->call(f, argc);
+	return vm->call(c, argc);
 }
 
 bool VM::CallVisitor::operator()(const NativeFunction& f) noexcept
@@ -73,9 +74,13 @@ InterpretResult VM::interpret(std::string_view code)
 {
 	auto func = cu.compile(code);
 	if (func == nullptr) return InterpretResult::COMPILE_ERROR;
-
+	
 	push(func);
-	call(func, 0);
+
+	auto closure = std::make_shared<ClosureObject>(func);
+	pop();
+	push(closure);
+	call(closure, 0);
  
 	return run();
 }
@@ -91,14 +96,10 @@ InterpretResult VM::run()
                 for (auto slot = 0; slot < stack.size(); ++slot)
                 {
                     std::cout << "[ " << stack[slot] << " ]";
-
                 }
                 std::cout << '\n';
 
-                frames.back().function->mChunk.disassembleInstruction(frames.back().ip);
-
-                
-                
+                frames.back().closure->fn->mChunk.disassembleInstruction(frames.back().ip);
 #endif
 
 		// Exploiting macros, wrap a 'op' b into a lambda to be executed
@@ -120,68 +121,68 @@ InterpretResult VM::run()
 		case OpCode::ADD:       
 			{
 				auto success = std::visit(overloaded 
-				                          {
-					                          // Handle number addition
-					                          [this](double d1, double d2) -> bool
-					                          {
-						                          pop();
-						                          pop();
-						                          push(d1 + d2);
-						                          return true;
-					                          },
+				{
+					// Handle number addition
+					[this](double d1, double d2) -> bool
+					{
+						pop();
+						pop();
+						push(d1 + d2);
+						return true;
+					},
 
-					                          // Handle string concat
-					                          [this](std::string s1, std::string s2) -> bool
-					                          {
-						                          pop();
-						                          pop();
-						                          push(s1 + s2);
-						                          return true;
-					                          },
+					// Handle string concat
+					[this](std::string s1, std::string s2) -> bool
+					{
+						pop();
+						pop();
+						push(s1 + s2);
+						return true;
+					},
 
-					                          // TEMP 
-					                          // Handle implicit number -> str
-					                          [this](double s1, std::string s2) -> bool
-					                          {
-						                          pop();
-						                          pop();
+					// TEMP 
+					// Handle implicit number -> str
+					[this](double s1, std::string s2) -> bool
+					{
+						pop();
+						pop();
 
 
-						                          if (std::fmod(s1, 1.0) == 0)
-						                          {
-							                          push(std::to_string(static_cast<int>(s1)) + s2);
-						                          }
-						                          else
-						                          {
-							                          push(std::to_string(s1) + s2);
-						                          }
-						                          return true;
-					                          },
+						if (std::fmod(s1, 1.0) == 0)
+						{
+							push(std::to_string(static_cast<int>(s1)) + s2);
+						}
+						else
+						{
+							push(std::to_string(s1) + s2);
+						}
+						return true;
+					},
 
-					                          [this](std::string s1, double s2) -> bool
-					                          {
-						                          pop();
-						                          pop();
+					[this](std::string s1, double s2) -> bool
+					{
+						pop();
+						pop();
 
-						                          if (std::fmod(s2, 1.0) == 0)
-						                          {
-							                          push(s1 + std::to_string(static_cast<int>(s2)));
-						                          }
-						                          else
-						                          {
-							                          push(s1 + std::to_string(s2));
-						                          }
-                        
-						                          return true;
-					                          },
+						if (std::fmod(s2, 1.0) == 0)
+						{
+							push(s1 + std::to_string(static_cast<int>(s2)));
+						}
+						else
+						{
+							push(s1 + std::to_string(s2));
+						}
 
-					                          // Handle any other type
-					                          [this](auto&, auto&) -> bool
-					                          {
-						                          runTimeError("Operands must be two numbers or two strings.");
-						                          return false;
-					                          }
-				                          }, peek(1), peek(0));
+						return true;
+					},
+
+					// Handle any other type
+					[this](auto&, auto&) -> bool
+					{
+						runTimeError("Operands must be two numbers or two strings.");
+						return false;
+					}
+				}, peek(1), peek(0));
 
 				if (!success) return InterpretResult::RUNTIME_ERROR;
 				break;
@@ -338,6 +339,19 @@ InterpretResult VM::run()
 
 				break;
 			}
+		case OpCode::CLOSURE:
+		{
+			// Retrieve the function
+			auto function = std::get<Function>(frames.back().readConstant());
+
+			// Create a new closure
+			auto closure = std::make_shared<ClosureObject>(function);
+
+			// Push closure onto the stack
+			push(closure);
+
+			break;
+		}
 		case OpCode::RETURN:
 			{
 				const auto& result = pop();
@@ -396,13 +410,13 @@ bool VM::callValue(const Value& callee, uint8_t argCount)
 	return std::visit(CallVisitor(*this, argCount), callee);
 }
 
-bool VM::call(Function function, uint8_t argCount)
+bool VM::call(Closure closure, uint8_t argCount)
 {
 	// Check to see if the number of arguments passed in
 	// is sufficient
-	if (argCount != function->mArity)
+	if (argCount != closure->fn->mArity)
 	{
-		runTimeError("Expected ", function->mArity, " arguments but got ", static_cast<int>(argCount), ".");
+		runTimeError("Expected ", closure->fn->mArity, " arguments but got ", static_cast<int>(argCount), ".");
 		return false;
 	}
 
@@ -414,7 +428,7 @@ bool VM::call(Function function, uint8_t argCount)
 	}
 
 	auto offset = stack.size() - 1 - argCount;
-	frames.emplace_back(function, offset, 0);
+	frames.emplace_back(closure, offset, 0);
 
 	return true;
 }

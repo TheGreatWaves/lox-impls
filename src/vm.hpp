@@ -25,7 +25,7 @@ constexpr std::size_t STACK_MAX = FRAMES_MAX * UINT8_COUNT;
 
 struct CallFrame
 {
-	Function    function;
+	Closure closure;
 	std::size_t valueOffset; // Offset to the values
 	std::size_t ip;          // Position in the code
 
@@ -63,7 +63,7 @@ private:
 	{
 		CallVisitor(VM& vm, uint8_t argCount);
 
-		[[nodiscard]] bool operator()(const Function& f) noexcept;
+		[[nodiscard]] bool operator()(const Closure& f) noexcept;
 
 		[[nodiscard]] bool operator()(const NativeFunction& f) noexcept;
 
@@ -111,7 +111,9 @@ public:
 
 	[[nodiscard]] bool callValue(const Value& callee, uint8_t argCount);
 
-	bool call(Function function, uint8_t argCount);
+	bool call(Closure closure, uint8_t argCount);
+
+
 
 private:
 	struct FalseyVistor
@@ -157,7 +159,7 @@ private:
 		for (size_t i = frameCount(); i-- > 0;)
 		{
 			const auto& frame = frames.at(i);
-			auto&       func = frame.function;
+			auto&       func = frame.closure->fn;
 			const auto  line = func->mChunk.lines.at(frame.ip - 1);
 			std::cerr << "[line " << line << "] in " << func->getName() << '\n';
 		}

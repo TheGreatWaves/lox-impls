@@ -116,6 +116,15 @@ std::size_t Chunk::disassembleInstruction(std::size_t offset) noexcept
 	case OpCode::GET_LOCAL:
 	case OpCode::CALL:
 		return byteInstruction(nameof(instr), offset);
+	case OpCode::CLOSURE:
+	{
+		offset++;
+		uint8_t constant = code.at(offset++);
+		printf("%-16s %4d ", nameof(OpCode::CLOSURE).data(), constant);
+		std::cout << constants.at(constant);
+		printf("\n");
+		return offset;
+	}
 	case OpCode::JUMP:
 	case OpCode::JUMP_IF_FALSE:
 		return jumpInstruction(nameof(instr), 1, offset);

@@ -595,7 +595,7 @@ void Compilation::function(FunctionType type)
 	// Revert back to the previous compiler.
 	auto func = endCompiler();
 
-	emitByte(static_cast<uint8_t>(OpCode::CONSTANT), makeConstant(func));
+	emitByte(static_cast<uint8_t>(OpCode::CLOSURE), makeConstant(func));
 }
 
 void Compilation::statement()
