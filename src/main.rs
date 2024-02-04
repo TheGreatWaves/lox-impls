@@ -109,20 +109,81 @@ impl Chunk {
 }
 
 //
+// Virtual Machine.
+//
+
+enum InterpretResult {
+    Ok,
+    CompileError,
+}
+
+struct VM {
+    // Bytecode chunks.
+    chunk: Chunk,
+
+    // Instruction pointer.
+    ip: usize,
+}
+
+impl VM {
+    fn new() -> Self {
+        Self {
+            chunk: Chunk::new(),
+            ip: 0,
+        }
+    }
+
+    fn read_instruction(&mut self) -> Opcode {
+        unsafe { ::std::mem::transmute(self.read_byte()) }
+    }
+
+    fn read_byte(&mut self) -> u8 {
+        let instruction: u8 = self.chunk.code[self.ip];
+        self.ip += 1;
+        instruction
+    }
+
+    fn read_constant(&mut self) -> f32 {
+        let idx = self.read_byte() as usize;
+        self.chunk.constants[idx]
+    }
+
+    fn run(&mut self) -> InterpretResult {
+        while self.ip < self.chunk.code.len() {
+            match self.read_instruction() {
+                Opcode::Constant => {
+                    let constant = self.read_constant();
+                    println! {"Constant: {}", constant};
+                }
+                Opcode::Return => {
+                    return InterpretResult::Ok;
+                }
+            }
+        }
+        InterpretResult::CompileError
+    }
+}
+
+//
 // Main driver.
 //
 fn main() {
-    let mut chunk = Chunk::new();
+    let mut vm = VM::new();
 
     // Add a new constant, retrieve the index the constant was written to.
-    let constant_index = chunk.add_constant(1.2);
+    let constant_index = vm.chunk.add_constant(1.2);
 
     // Now we will have `<OPCODE_CONSTANT> <CONSTANT_INDEX>`.
-    chunk.write_instruction(Opcode::Constant, 123);
-    chunk.write(constant_index, 123);
+    vm.chunk.write_instruction(Opcode::Constant, 123);
+    vm.chunk.write(constant_index, 123);
 
-    chunk.write_instruction(Opcode::Return, 123);
+    vm.chunk.write_instruction(Opcode::Return, 123);
+
+    match vm.run() {
+        InterpretResult::Ok => println!("All ok!"),
+        InterpretResult::CompileError => println!("Compile error"),
+    }
 
     // NOTE: For debugging.
-    chunk.disassemble_chunk("test chunk");
+    vm.chunk.disassemble_chunk("test chunk");
 }
