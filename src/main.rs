@@ -1,3 +1,6 @@
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
+
 //
 // Value.
 //
@@ -12,9 +15,11 @@ pub fn print_value(value: &Value) {
 //
 
 // List of VM instructions.
+#[derive(FromPrimitive)]
 #[repr(u8)]
 pub enum Opcode {
-    Constant,
+    Constant = 1,
+    Negate,
     Return,
 }
 
@@ -51,7 +56,7 @@ impl Chunk {
 
     // TODO: I should probably move this out.
     /// Print instruction name and return the next offset.
-    pub fn simple_instruction(&self, name: &str, offset: i32) -> i32 {
+    pub fn simple_instruction(&self, name: &str, offset: usize) -> usize {
         println!("{} ", name);
         offset + 1
     }
@@ -63,7 +68,7 @@ impl Chunk {
     }
 
     /// Print the constant's handle and it's value. Returns the next offset.
-    pub fn constant_instruction(&self, name: &str, offset: i32) -> i32 {
+    pub fn constant_instruction(&self, name: &str, offset: usize) -> usize {
         let constant_index = self.code[(offset + 1) as usize] as usize;
         print!("{:-16} {:4} '", name, constant_index);
         print_value(&self.constants[constant_index]);
@@ -72,26 +77,25 @@ impl Chunk {
     }
 
     /// Dump the instruction's information.
-    pub fn disassemble_instruction(&self, offset: i32) -> i32 {
+    pub fn disassemble_instruction(&self, offset: usize) -> usize {
         print!("{:04} ", offset);
 
-        let offset_index = offset as usize;
+        let offset_index = offset;
         if offset_index > 0 && self.lines[offset_index] == self.lines[offset_index - 1] {
             print!("   | ")
         } else {
             print!("{:4} ", self.lines[offset_index]);
         }
 
-        let instruction = self.code[offset as usize];
+        let byte = self.code[offset as usize];
+        let instruction: Option<Opcode> = FromPrimitive::from_u8(byte);
+
         match instruction {
-            instruction if instruction == Opcode::Return as u8 => {
-                self.simple_instruction("OP_RETURN", offset)
-            }
-            instruction if instruction == Opcode::Constant as u8 => {
-                self.constant_instruction("OP_CONSTANT", offset)
-            }
-            _ => {
-                println!("Unknown opcode {}", instruction as u32);
+            Some(Opcode::Return) => self.simple_instruction("OP_RETURN", offset),
+            Some(Opcode::Constant) => self.constant_instruction("OP_CONSTANT", offset),
+            Some(Opcode::Negate) => self.simple_instruction("OP_NEGATE", offset),
+            None => {
+                println!("Unknown opcode {}", byte);
                 offset + 1
             }
         }
@@ -101,8 +105,8 @@ impl Chunk {
     pub fn disassemble_chunk(&self, name: &str) {
         println!("== {} ==", name);
 
-        let mut offset: i32 = 0;
-        while offset < self.code.len() as i32 {
+        let mut offset: usize = 0;
+        while offset < self.code.len() {
             offset = self.disassemble_instruction(offset);
         }
     }
@@ -117,12 +121,17 @@ enum InterpretResult {
     CompileError,
 }
 
+const STACK_MAX: usize = 256;
+
 struct VM {
     // Bytecode chunks.
     chunk: Chunk,
 
     // Instruction pointer.
     ip: usize,
+
+    // Stack.
+    stack: Vec<Value>,
 }
 
 impl VM {
@@ -130,11 +139,20 @@ impl VM {
         Self {
             chunk: Chunk::new(),
             ip: 0,
+            stack: Vec::with_capacity(STACK_MAX),
         }
     }
 
-    fn read_instruction(&mut self) -> Opcode {
-        unsafe { ::std::mem::transmute(self.read_byte()) }
+    fn push(&mut self, value: Value) {
+        self.stack.push(value);
+    }
+
+    fn pop(&mut self) -> Value {
+        self.stack.pop().unwrap()
+    }
+
+    fn read_instruction(&mut self) -> Option<Opcode> {
+        FromPrimitive::from_u8(self.read_byte())
     }
 
     fn read_byte(&mut self) -> u8 {
@@ -148,15 +166,29 @@ impl VM {
         self.chunk.constants[idx]
     }
 
-    fn run(&mut self) -> InterpretResult {
+    fn run(&mut self, debug: bool) -> InterpretResult {
         while self.ip < self.chunk.code.len() {
+            if debug {
+                print!("          ");
+                self.stack.iter().for_each(|&slot| print!("[ {} ]", slot));
+                println!();
+                self.chunk.disassemble_instruction(self.ip);
+            }
             match self.read_instruction() {
-                Opcode::Constant => {
+                Some(Opcode::Constant) => {
                     let constant = self.read_constant();
-                    println! {"Constant: {}", constant};
+                    self.push(constant);
                 }
-                Opcode::Return => {
+                Some(Opcode::Return) => {
+                    println!("{}", self.pop());
                     return InterpretResult::Ok;
+                }
+                Some(Opcode::Negate) => {
+                    let negated_value = -self.pop();
+                    self.push(negated_value);
+                }
+                None => {
+                    println!("Invalid opcode found.")
                 }
             }
         }
@@ -171,19 +203,18 @@ fn main() {
     let mut vm = VM::new();
 
     // Add a new constant, retrieve the index the constant was written to.
-    let constant_index = vm.chunk.add_constant(1.2);
+    let constant_index = vm.chunk.add_constant(0.0);
 
     // Now we will have `<OPCODE_CONSTANT> <CONSTANT_INDEX>`.
     vm.chunk.write_instruction(Opcode::Constant, 123);
     vm.chunk.write(constant_index, 123);
 
+    vm.chunk.write_instruction(Opcode::Negate, 123);
+
     vm.chunk.write_instruction(Opcode::Return, 123);
 
-    match vm.run() {
+    match vm.run(true) {
         InterpretResult::Ok => println!("All ok!"),
         InterpretResult::CompileError => println!("Compile error"),
     }
-
-    // NOTE: For debugging.
-    vm.chunk.disassemble_chunk("test chunk");
 }
