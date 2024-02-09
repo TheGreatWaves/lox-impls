@@ -19,6 +19,10 @@ pub fn print_value(value: &Value) {
 #[repr(u8)]
 pub enum Opcode {
     Constant = 1,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
     Negate,
     Return,
 }
@@ -91,9 +95,13 @@ impl Chunk {
         let instruction: Option<Opcode> = FromPrimitive::from_u8(byte);
 
         match instruction {
-            Some(Opcode::Return) => self.simple_instruction("OP_RETURN", offset),
             Some(Opcode::Constant) => self.constant_instruction("OP_CONSTANT", offset),
+            Some(Opcode::Add) => self.simple_instruction("OP_CONSTANT", offset),
+            Some(Opcode::Subtract) => self.simple_instruction("OP_SUBTRACT", offset),
+            Some(Opcode::Multiply) => self.simple_instruction("OP_MULTIPLY", offset),
+            Some(Opcode::Divide) => self.simple_instruction("OP_DIVIDE", offset),
             Some(Opcode::Negate) => self.simple_instruction("OP_NEGATE", offset),
+            Some(Opcode::Return) => self.simple_instruction("OP_RETURN", offset),
             None => {
                 println!("Unknown opcode {}", byte);
                 offset + 1
@@ -179,13 +187,33 @@ impl VM {
                     let constant = self.read_constant();
                     self.push(constant);
                 }
-                Some(Opcode::Return) => {
-                    println!("{}", self.pop());
-                    return InterpretResult::Ok;
+                Some(Opcode::Add) => {
+                    let a = self.pop();
+                    let b = self.pop();
+                    self.push(a + b);
+                }
+                Some(Opcode::Subtract) => {
+                    let a = self.pop();
+                    let b = self.pop();
+                    self.push(a - b);
+                }
+                Some(Opcode::Multiply) => {
+                    let a = self.pop();
+                    let b = self.pop();
+                    self.push(a * b);
+                }
+                Some(Opcode::Divide) => {
+                    let a = self.pop();
+                    let b = self.pop();
+                    self.push(a / b);
                 }
                 Some(Opcode::Negate) => {
                     let negated_value = -self.pop();
                     self.push(negated_value);
+                }
+                Some(Opcode::Return) => {
+                    println!("{}", self.pop());
+                    return InterpretResult::Ok;
                 }
                 None => {
                     println!("Invalid opcode found.")
@@ -203,14 +231,23 @@ fn main() {
     let mut vm = VM::new();
 
     // Add a new constant, retrieve the index the constant was written to.
-    let constant_index = vm.chunk.add_constant(0.0);
-
-    // Now we will have `<OPCODE_CONSTANT> <CONSTANT_INDEX>`.
+    let constant_index = vm.chunk.add_constant(1.2);
     vm.chunk.write_instruction(Opcode::Constant, 123);
     vm.chunk.write(constant_index, 123);
 
-    vm.chunk.write_instruction(Opcode::Negate, 123);
+    let constant_index = vm.chunk.add_constant(3.4);
+    vm.chunk.write_instruction(Opcode::Constant, 123);
+    vm.chunk.write(constant_index, 123);
 
+    vm.chunk.write_instruction(Opcode::Add, 123);
+
+    let constant_index = vm.chunk.add_constant(5.6);
+    vm.chunk.write_instruction(Opcode::Constant, 123);
+    vm.chunk.write(constant_index, 123);
+
+    vm.chunk.write_instruction(Opcode::Divide, 123);
+
+    vm.chunk.write_instruction(Opcode::Negate, 123);
     vm.chunk.write_instruction(Opcode::Return, 123);
 
     match vm.run(true) {
