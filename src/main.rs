@@ -1,3 +1,19 @@
+use std::error::Error;
+
+use clap::{command, Parser};
+
+//
+// CLI.
+//
+
+#[derive(Parser, Debug)]
+#[command(version, about,long_about = None)]
+struct Args {
+    // Source code file path. If not specifed, REPL mode will start.
+    #[arg(short, long)]
+    path: Option<String>,
+}
+
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -159,6 +175,11 @@ impl VM {
         self.stack.pop().unwrap()
     }
 
+    fn interpret(&mut self, source: &str) -> InterpretResult {
+        // TODO: Implement me!
+        InterpretResult::Ok
+    }
+
     fn read_instruction(&mut self) -> Option<Opcode> {
         FromPrimitive::from_u8(self.read_byte())
     }
@@ -228,30 +249,24 @@ impl VM {
 // Main driver.
 //
 fn main() {
-    let mut vm = VM::new();
+    let args = Args::parse();
+    let vm = VM::new();
 
-    // Add a new constant, retrieve the index the constant was written to.
-    let constant_index = vm.chunk.add_constant(1.2);
-    vm.chunk.write_instruction(Opcode::Constant, 123);
-    vm.chunk.write(constant_index, 123);
+    if let Some(path) = args.path.as_deref() {
+        run_file(vm, &path);
+    }
+}
 
-    let constant_index = vm.chunk.add_constant(3.4);
-    vm.chunk.write_instruction(Opcode::Constant, 123);
-    vm.chunk.write(constant_index, 123);
+//
+// Run file.
+//
+fn run_file(mut vm: VM, path: &str) -> InterpretResult {
+    let file_source = std::fs::read_to_string(path);
 
-    vm.chunk.write_instruction(Opcode::Add, 123);
-
-    let constant_index = vm.chunk.add_constant(5.6);
-    vm.chunk.write_instruction(Opcode::Constant, 123);
-    vm.chunk.write(constant_index, 123);
-
-    vm.chunk.write_instruction(Opcode::Divide, 123);
-
-    vm.chunk.write_instruction(Opcode::Negate, 123);
-    vm.chunk.write_instruction(Opcode::Return, 123);
-
-    match vm.run(true) {
-        InterpretResult::Ok => println!("All ok!"),
-        InterpretResult::CompileError => println!("Compile error"),
+    if file_source.is_err() {
+        InterpretResult::CompileError
+    } else {
+        let file_source = file_source.unwrap();
+        vm.interpret(&file_source)
     }
 }
