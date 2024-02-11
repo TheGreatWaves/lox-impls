@@ -1,5 +1,4 @@
 use std::{
-    error::Error,
     io::{self, BufRead, Write},
     process::ExitCode,
 };
@@ -18,6 +17,7 @@ struct Args {
     path: Option<String>,
 }
 
+use log::error;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -179,6 +179,7 @@ impl VM {
         self.stack.pop().unwrap()
     }
 
+    #[allow(unused_variables)]
     fn interpret(&mut self, source: &str) -> InterpretResult {
         // TODO: Implement me!
         InterpretResult::Ok
@@ -199,6 +200,7 @@ impl VM {
         self.chunk.constants[idx]
     }
 
+    #[allow(dead_code)]
     fn run(&mut self, debug: bool) -> InterpretResult {
         while self.ip < self.chunk.code.len() {
             if debug {
