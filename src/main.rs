@@ -143,6 +143,7 @@ impl Chunk {
 //
 // Token.
 //
+#[derive(PartialEq, Eq)]
 enum TokenKind {
     // Single-character tokens.
     LeftParen,
@@ -455,4 +456,50 @@ fn run_repl(mut vm: VM) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    //
+    // Testing scanner.
+    //
+    #[test]
+    fn test_scanner_basic() {
+        let source = "(";
+        let mut scanner = Scanner::new(source.to_string());
+
+        let token = scanner.scan_token();
+
+        assert!(token.kind == TokenKind::LeftParen);
+    }
+
+    #[test]
+    fn test_scanner() {
+        let source = "({;,.-+/*})";
+        let mut scanner = Scanner::new(source.to_string());
+
+        let mut idx = 0;
+        let expected = vec![
+            TokenKind::LeftParen,
+            TokenKind::LeftBrace,
+            TokenKind::Semicolon,
+            TokenKind::Comma,
+            TokenKind::Dot,
+            TokenKind::Minus,
+            TokenKind::Plus,
+            TokenKind::Slash,
+            TokenKind::Star,
+            TokenKind::RightBrace,
+            TokenKind::RightParen,
+        ];
+        while !scanner.is_at_end() {
+            let token = scanner.scan_token();
+
+            assert!(token.kind == expected[idx]);
+
+            idx += 1;
+        }
+    }
 }
