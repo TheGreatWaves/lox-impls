@@ -191,6 +191,29 @@ enum TokenKind {
     Eof,
 }
 
+struct Token<'a> {
+    r#type: TokenKind,
+    start: usize,
+    length: usize,
+    line: usize,
+    source: &'a str,
+}
+
+impl<'a> Token<'a> {
+    fn new(tty: TokenKind, start: usize, length: usize, line: usize, source: &'a str) -> Self {
+        Self {
+            r#type: tty,
+            start,
+            length,
+            line,
+            source,
+        }
+    }
+
+    fn lexeme(&'a self) -> &'a str {
+        &self.source[self.start..self.start + self.length]
+    }
+}
 //
 // Virtual Machine.
 //
