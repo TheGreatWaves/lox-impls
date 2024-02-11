@@ -1,4 +1,8 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    io::{self, BufRead, Write},
+    process::ExitCode,
+};
 
 use clap::{command, Parser};
 
@@ -248,25 +252,51 @@ impl VM {
 //
 // Main driver.
 //
-fn main() {
+fn main() -> ExitCode {
     let args = Args::parse();
     let vm = VM::new();
 
     if let Some(path) = args.path.as_deref() {
-        run_file(vm, &path);
+        run_file(vm, &path)
+    } else {
+        run_repl(vm)
     }
 }
 
 //
 // Run file.
 //
-fn run_file(mut vm: VM, path: &str) -> InterpretResult {
+fn run_file(mut vm: VM, path: &str) -> ExitCode {
     let file_source = std::fs::read_to_string(path);
 
-    if file_source.is_err() {
-        InterpretResult::CompileError
-    } else {
-        let file_source = file_source.unwrap();
-        vm.interpret(&file_source)
+    let mut result: InterpretResult = InterpretResult::CompileError;
+
+    if let Ok(file_source) = file_source {
+        result = vm.interpret(&file_source);
     }
+
+    match result {
+        InterpretResult::CompileError => ExitCode::from(65),
+        InterpretResult::Ok => ExitCode::SUCCESS,
+    }
+}
+
+//
+// REPL.
+//
+fn run_repl(mut vm: VM) -> ExitCode {
+    let _ = vm;
+    print!("> ");
+    io::stdout().flush().unwrap();
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        print!("> ");
+        io::stdout().flush().unwrap();
+        let line = line.unwrap();
+        match vm.interpret(&line) {
+            InterpretResult::CompileError => return ExitCode::from(65),
+            _ => {}
+        }
+    }
+    ExitCode::SUCCESS
 }
