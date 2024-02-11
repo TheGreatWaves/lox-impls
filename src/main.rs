@@ -271,15 +271,18 @@ fn main() -> ExitCode {
 fn run_file(mut vm: VM, path: &str) -> ExitCode {
     let file_source = std::fs::read_to_string(path);
 
-    let mut result: InterpretResult = InterpretResult::CompileError;
-
     if let Ok(file_source) = file_source {
-        result = vm.interpret(&file_source);
-    }
+        let result = vm.interpret(&file_source);
 
-    match result {
-        InterpretResult::CompileError => ExitCode::from(65),
-        InterpretResult::Ok => ExitCode::SUCCESS,
+        match result {
+            InterpretResult::CompileError => ExitCode::from(65),
+            InterpretResult::Ok => ExitCode::SUCCESS,
+        }
+    } else {
+        // File not found.
+        error!("File at path not found: {}", path);
+        io::stdout().flush().unwrap();
+        ExitCode::from(74)
     }
 }
 
