@@ -214,6 +214,83 @@ impl<'a> Token<'a> {
         &self.source[self.start..self.start + self.length]
     }
 }
+
+//
+// Scanner.
+//
+struct Scanner {
+    current: usize,
+    line: usize,
+    source: String,
+    start: usize,
+}
+
+impl Scanner {
+    /// Creates a new [`Scanner`].
+    fn new(source: String) -> Self {
+        Self {
+            current: 0,
+            line: 1,
+            start: 0,
+            source,
+        }
+    }
+
+    fn scan_token(&mut self) -> Token {
+        if self.is_at_end() {
+            return self.make_token(TokenKind::Eof);
+        }
+
+        let c = self.advance();
+
+        match c {
+            '(' => return self.make_token(TokenKind::LeftParen),
+            ')' => return self.make_token(TokenKind::RightParen),
+            '{' => return self.make_token(TokenKind::LeftBrace),
+            '}' => return self.make_token(TokenKind::RightBrace),
+            ';' => return self.make_token(TokenKind::Semicolon),
+            ',' => return self.make_token(TokenKind::Comma),
+            '.' => return self.make_token(TokenKind::Dot),
+            '-' => return self.make_token(TokenKind::Minus),
+            '+' => return self.make_token(TokenKind::Plus),
+            '/' => return self.make_token(TokenKind::Slash),
+            '*' => return self.make_token(TokenKind::Star),
+            _ => {}
+        }
+
+        return self.error_token("Unexpected character.");
+    }
+
+    fn advance(&mut self) -> char {
+        self.current += 1;
+        self.source.chars().nth(self.current - 1).unwrap_or('\0')
+    }
+
+    fn is_at_end(&self) -> bool {
+        self.current >= self.source.len()
+    }
+
+    fn make_token(&self, tty: TokenKind) -> Token {
+        Token::new(
+            tty,
+            self.start,
+            self.current - self.start,
+            self.line,
+            &self.source,
+        )
+    }
+
+    fn error_token(&self, message: &'static str) -> Token {
+        Token {
+            r#type: TokenKind::Error,
+            start: self.start,
+            length: self.current - self.start,
+            line: self.line,
+            source: message,
+        }
+    }
+}
+
 //
 // Virtual Machine.
 //
