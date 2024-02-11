@@ -9,3 +9,4 @@ edition = "2021"
 num-traits = "0.2"
 num-derive = "0.4"
 clap = { version = "4.5.0", features = ["derive"] }
+log = "0.4.20"
