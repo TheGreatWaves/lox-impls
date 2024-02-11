@@ -192,7 +192,7 @@ enum TokenKind {
 }
 
 struct Token<'a> {
-    r#type: TokenKind,
+    kind: TokenKind,
     start: usize,
     length: usize,
     line: usize,
@@ -202,7 +202,7 @@ struct Token<'a> {
 impl<'a> Token<'a> {
     fn new(tty: TokenKind, start: usize, length: usize, line: usize, source: &'a str) -> Self {
         Self {
-            r#type: tty,
+            kind: tty,
             start,
             length,
             line,
@@ -282,7 +282,7 @@ impl Scanner {
 
     fn error_token(&self, message: &'static str) -> Token {
         Token {
-            r#type: TokenKind::Error,
+            kind: TokenKind::Error,
             start: self.start,
             length: self.current - self.start,
             line: self.line,
