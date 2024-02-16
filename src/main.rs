@@ -201,6 +201,10 @@ struct Token<'a> {
 }
 
 impl<'a> Token<'a> {
+    fn lexeme(&'a self) -> &'a str {
+        &self.source[self.start..self.start + self.length]
+    }
+
     fn new(tty: TokenKind, start: usize, length: usize, line: usize, source: &'a str) -> Self {
         Self {
             kind: tty,
@@ -209,10 +213,6 @@ impl<'a> Token<'a> {
             line,
             source,
         }
-    }
-
-    fn lexeme(&'a self) -> &'a str {
-        &self.source[self.start..self.start + self.length]
     }
 }
 
@@ -227,7 +227,7 @@ struct Scanner {
 }
 
 impl Scanner {
-    /// Creates a new [`Scanner`].
+    // Creates a new [`Scanner`].
     fn new(source: String) -> Self {
         Self {
             current: 0,
@@ -237,6 +237,7 @@ impl Scanner {
         }
     }
 
+    // Scan the next token.
     fn scan_token(&mut self) -> Token {
         if self.is_at_end() {
             return self.make_token(TokenKind::Eof);
@@ -262,15 +263,18 @@ impl Scanner {
         return self.error_token("Unexpected character.");
     }
 
+    // Advance to the next character.
     fn advance(&mut self) -> char {
         self.current += 1;
         self.source.chars().nth(self.current - 1).unwrap_or('\0')
     }
 
+    // Returns true when the scanner is exhausted.
     fn is_at_end(&self) -> bool {
         self.current >= self.source.len()
     }
 
+    // Create a new token of given kind.
     fn make_token(&self, tty: TokenKind) -> Token {
         Token::new(
             tty,
@@ -281,6 +285,7 @@ impl Scanner {
         )
     }
 
+    // Create a new error token with the specific message.
     fn error_token(&self, message: &'static str) -> Token {
         Token {
             kind: TokenKind::Error,
@@ -296,13 +301,16 @@ impl Scanner {
 // Virtual Machine.
 //
 
+// The InterpretResult enum symbolises the state of the compiler result.
 enum InterpretResult {
     Ok,
     CompileError,
 }
 
+// The max size of the stack.
 const STACK_MAX: usize = 256;
 
+// The virtual machine (VM) is responsible for interpreting bytecode chunks and mutating internal state accordingly.
 struct VM {
     // Bytecode chunks.
     chunk: Chunk,
@@ -315,6 +323,7 @@ struct VM {
 }
 
 impl VM {
+    // Return a new virtual machine instance.
     fn new() -> Self {
         Self {
             chunk: Chunk::new(),
@@ -323,35 +332,42 @@ impl VM {
         }
     }
 
+    // Push a new value onto the stack.
     fn push(&mut self, value: Value) {
         self.stack.push(value);
     }
 
+    // Pop and return value from the stack.
     fn pop(&mut self) -> Value {
         self.stack.pop().unwrap()
     }
 
+    // Interpret source code. Return Interpret result which symbolizes the success state.
     #[allow(unused_variables)]
     fn interpret(&mut self, source: &str) -> InterpretResult {
         // TODO: Implement me!
         InterpretResult::Ok
     }
 
+    // Interpret the next byte as an opcode.
     fn read_instruction(&mut self) -> Option<Opcode> {
         FromPrimitive::from_u8(self.read_byte())
     }
 
+    // Read the current byte and increment onto the next.
     fn read_byte(&mut self) -> u8 {
         let instruction: u8 = self.chunk.code[self.ip];
         self.ip += 1;
         instruction
     }
 
+    // Read the byte as the value used to index into the constants array.
     fn read_constant(&mut self) -> f32 {
         let idx = self.read_byte() as usize;
         self.chunk.constants[idx]
     }
 
+    // Main run loop. Interpret all byte code and mutate internal state.
     #[allow(dead_code)]
     fn run(&mut self, debug: bool) -> InterpretResult {
         while self.ip < self.chunk.code.len() {
