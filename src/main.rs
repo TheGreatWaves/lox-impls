@@ -143,7 +143,7 @@ impl Chunk {
 //
 // Token.
 //
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum TokenKind {
     // Single-character tokens.
     LeftParen,
@@ -219,16 +219,16 @@ impl<'a> Token<'a> {
 //
 // Scanner.
 //
-struct Scanner {
+struct Scanner<'a> {
     current: usize,
     line: usize,
-    source: String,
+    source: &'a str,
     start: usize,
 }
 
-impl Scanner {
+impl<'a> Scanner<'a> {
     // Creates a new [`Scanner`].
-    fn new(source: String) -> Self {
+    fn new(source: &'a str) -> Self {
         Self {
             current: 0,
             line: 1,
@@ -237,13 +237,49 @@ impl Scanner {
         }
     }
 
+    fn skip_whitespace(&mut self) {
+        loop {
+            let c: char = self.peek();
+            match c {
+                // General whitespace.
+                ' ' | '\r' | '\t' => {
+                    self.advance();
+                }
+                // Handle newline.
+                '\n' => {
+                    self.line += 1;
+                    self.advance();
+                }
+                // Handle comments.
+                '/' => {
+                    if self.peek_offset(1) == '/' {
+                        // Ignore until newline or scanner exhausted.
+                        while self.peek() != '\n' && !self.is_at_end() {
+                            self.advance();
+                        }
+                    }
+                }
+                _ => return,
+            }
+        }
+    }
+
     // Scan the next token.
     fn scan_token(&mut self) -> Token {
+        self.skip_whitespace();
+        self.start = self.current;
+
         if self.is_at_end() {
             return self.make_token(TokenKind::Eof);
         }
 
         let c = self.advance();
+
+        if c.is_ascii_digit() {
+            return self.number();
+        } else if c.is_ascii_alphabetic() || c == '_' {
+            return self.identifer();
+        }
 
         match c {
             '(' => return self.make_token(TokenKind::LeftParen),
@@ -257,6 +293,37 @@ impl Scanner {
             '+' => return self.make_token(TokenKind::Plus),
             '/' => return self.make_token(TokenKind::Slash),
             '*' => return self.make_token(TokenKind::Star),
+            '!' => {
+                if self.match_char('=') {
+                    return self.make_token(TokenKind::BangEqual);
+                } else {
+                    return self.make_token(TokenKind::Bang);
+                }
+            }
+            '=' => {
+                if self.match_char('=') {
+                    return self.make_token(TokenKind::EqualEqual);
+                } else {
+                    return self.make_token(TokenKind::Equal);
+                }
+            }
+            '<' => {
+                if self.match_char('=') {
+                    return self.make_token(TokenKind::LessEqual);
+                } else {
+                    return self.make_token(TokenKind::Less);
+                }
+            }
+            '>' => {
+                if self.match_char('=') {
+                    return self.make_token(TokenKind::GreaterEqual);
+                } else {
+                    return self.make_token(TokenKind::Greater);
+                }
+            }
+            '"' => {
+                return self.string();
+            }
             _ => {}
         }
 
@@ -265,8 +332,26 @@ impl Scanner {
 
     // Advance to the next character.
     fn advance(&mut self) -> char {
+        let c = self.peek();
         self.current += 1;
-        self.source.chars().nth(self.current - 1).unwrap_or('\0')
+        c
+    }
+
+    fn peek_offset(&self, idx: usize) -> char {
+        self.source.chars().nth(self.current + idx).unwrap_or('\0')
+    }
+
+    fn peek(&self) -> char {
+        self.peek_offset(0)
+    }
+
+    fn match_char(&mut self, expected: char) -> bool {
+        if self.is_at_end() || self.peek() != expected {
+            false
+        } else {
+            self.current += 1;
+            true
+        }
     }
 
     // Returns true when the scanner is exhausted.
@@ -293,6 +378,130 @@ impl Scanner {
             length: self.current - self.start,
             line: self.line,
             source: message,
+        }
+    }
+
+    fn string(&mut self) -> Token<'_> {
+        while self.peek() != '"' && !self.is_at_end() {
+            if self.peek() == '\n' {
+                self.line += 1;
+            }
+            _ = self.advance();
+        }
+
+        if self.peek() != '"' {
+            self.error_token("Unterminated string")
+        } else {
+            _ = self.advance();
+            self.make_token(TokenKind::String)
+        }
+    }
+
+    fn number(&mut self) -> Token<'_> {
+        while self.peek().is_ascii_digit() {
+            _ = self.advance();
+        }
+
+        // Handle fraction.
+        if self.peek() == '.' {
+            self.advance();
+
+            while self.peek().is_ascii_digit() {
+                _ = self.advance();
+            }
+        }
+
+        self.make_token(TokenKind::Number)
+    }
+
+    fn identifer(&mut self) -> Token<'_> {
+        while self.peek().is_ascii_alphanumeric() || self.peek() == '_' {
+            self.advance();
+        }
+        self.make_token(self.identifer_type())
+    }
+
+    fn identifer_type(&self) -> TokenKind {
+        match self.source.chars().nth(self.start).unwrap() {
+            'a' => return self.check_keyword(1, "nd", TokenKind::And),
+            'c' => return self.check_keyword(1, "lass", TokenKind::Class),
+            'e' => return self.check_keyword(1, "lse", TokenKind::Else),
+            'f' => {
+                if self.current - self.start > 1 {
+                    match self.source.chars().nth(self.start + 1).unwrap() {
+                        'a' => return self.check_keyword(2, "alse", TokenKind::False),
+                        'o' => return self.check_keyword(2, "r", TokenKind::For),
+                        'u' => return self.check_keyword(2, "n", TokenKind::Fun),
+                        _ => {}
+                    }
+                }
+            }
+            't' => {
+                if self.current - self.start > 1 {
+                    match self.source.chars().nth(self.start + 1).unwrap() {
+                        'h' => return self.check_keyword(2, "is", TokenKind::This),
+                        'r' => return self.check_keyword(2, "ue", TokenKind::True),
+                        _ => {}
+                    }
+                }
+            }
+            'i' => return self.check_keyword(1, "f", TokenKind::If),
+            'n' => return self.check_keyword(1, "il", TokenKind::Nil),
+            'o' => return self.check_keyword(1, "r", TokenKind::Or),
+            'p' => return self.check_keyword(1, "rint", TokenKind::Print),
+            'r' => return self.check_keyword(1, "eturn", TokenKind::Return),
+            's' => return self.check_keyword(1, "uper", TokenKind::Super),
+            'v' => return self.check_keyword(1, "ar", TokenKind::Var),
+            'w' => return self.check_keyword(1, "hile", TokenKind::While),
+            _ => {}
+        }
+
+        return TokenKind::Identifier;
+    }
+
+    fn check_keyword(&self, offset: usize, expected: &str, kind: TokenKind) -> TokenKind {
+        let keyword_found =
+            &self.source[self.start + offset..self.start + offset + expected.len()] == expected;
+
+        let length_matches = (self.current - self.start) == expected.len() + offset;
+
+        if keyword_found && length_matches {
+            kind
+        } else {
+            TokenKind::Identifier
+        }
+    }
+}
+
+//
+// Compiler.
+//
+struct Compiler {}
+
+impl Compiler {
+    fn new() -> Self {
+        Self {}
+    }
+
+    fn compile(&self, source: &str) {
+        let mut scanner = Scanner::new(&source);
+        let mut line: i32 = -1;
+        loop {
+            let token = scanner.scan_token();
+
+            if token.line != (line as usize) {
+                print!("{:4} ", token.line);
+                line = token.line as i32;
+            } else {
+                print!("   | ");
+            }
+
+            println!("{:2} '{}'", token.kind.clone() as u32, token.lexeme());
+            io::stdout().flush().unwrap();
+
+            if token.kind == TokenKind::Eof {
+                break;
+            }
         }
     }
 }
@@ -345,7 +554,8 @@ impl VM {
     // Interpret source code. Return Interpret result which symbolizes the success state.
     #[allow(unused_variables)]
     fn interpret(&mut self, source: &str) -> InterpretResult {
-        // TODO: Implement me!
+        let compiler = Compiler::new();
+        compiler.compile(source);
         InterpretResult::Ok
     }
 
@@ -463,13 +673,13 @@ fn run_repl(mut vm: VM) -> ExitCode {
     io::stdout().flush().unwrap();
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
-        print!("> ");
-        io::stdout().flush().unwrap();
         let line = line.unwrap();
         match vm.interpret(&line) {
             InterpretResult::CompileError => return ExitCode::from(65),
             _ => {}
         }
+        print!("> ");
+        io::stdout().flush().unwrap();
     }
     ExitCode::SUCCESS
 }
