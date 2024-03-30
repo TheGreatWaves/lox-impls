@@ -204,7 +204,7 @@ struct Token<'a> {
 }
 
 impl<'a> Token<'a> {
-    fn lexeme(&'a self) -> &'a str {
+    fn lexeme(&self) -> &'a str {
         &self.source[self.start..self.start + self.length]
     }
 
@@ -264,6 +264,8 @@ impl<'a> Scanner<'a> {
                         while self.peek() != '\n' && !self.is_at_end() {
                             self.advance();
                         }
+                    } else {
+                        return;
                     }
                 }
                 _ => return,
@@ -510,11 +512,12 @@ impl<'a> Parser<'a> {
 
         loop {
             self.current = self.scanner.scan_token();
-            // if self.current.kind != TokenKind::Error {
-            //     break;
-            // }
+            if self.current.kind != TokenKind::Error {
+                break;
+            }
 
-            // self.report_error_at_current(self.current.lexeme());
+            let lexeme = self.current.lexeme();
+            self.report_error_at_current(lexeme);
         }
     }
 
@@ -560,6 +563,7 @@ impl<'a> Parser<'a> {
         self.report_error_at(token, message);
     }
 
+    #[allow(dead_code)]
     fn report_error(&mut self, message: &str) {
         let token = self.previous;
         self.report_error_at(token, message);
@@ -597,15 +601,18 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    #[allow(dead_code)]
     fn emit_byte(&mut self, byte: u8) {
         self.chunk.write(byte, self.parser.previous.line as i32);
     }
 
+    #[allow(dead_code)]
     fn emit_bytes(&mut self, byte1: u8, byte2: u8) {
         self.emit_byte(byte1);
         self.emit_byte(byte2);
     }
 
+    #[allow(dead_code)]
     fn end(&mut self) {
         self.emit_byte(Opcode::Return as u8);
     }
@@ -802,9 +809,8 @@ fn run_repl(mut vm: VM) -> ExitCode {
 mod tests {
     use super::*;
 
-    //
     // Testing scanner.
-    //
+
     #[test]
     fn test_scanner_basic() {
         let source = "(";
