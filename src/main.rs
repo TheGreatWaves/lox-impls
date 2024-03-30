@@ -1,15 +1,16 @@
 use std::{
     io::{self, BufRead, Write},
+    mem,
     process::ExitCode,
 };
 
-use clap::{command, Parser};
+use clap::command;
 
 //
 // CLI.
 //
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 #[command(version, about,long_about = None)]
 struct Args {
     // Source code file path. If not specifed, REPL mode will start.
@@ -48,6 +49,7 @@ pub enum Opcode {
 }
 
 /// A chunk is a sequence of bytecode.
+#[derive(Default)]
 pub struct Chunk {
     /// The list of bytecode which represents the program.
     pub code: Vec<u8>,
@@ -93,11 +95,11 @@ impl Chunk {
 
     /// Print the constant's handle and it's value. Returns the next offset.
     pub fn constant_instruction(&self, name: &str, offset: usize) -> usize {
-        let constant_index = self.code[(offset + 1) as usize] as usize;
+        let constant_index = self.code[offset + 1] as usize;
         print!("{:-16} {:4} '", name, constant_index);
         print_value(&self.constants[constant_index]);
         println!("'");
-        return offset + 2;
+        offset + 2
     }
 
     /// Dump the instruction's information.
@@ -111,7 +113,7 @@ impl Chunk {
             print!("{:4} ", self.lines[offset_index]);
         }
 
-        let byte = self.code[offset as usize];
+        let byte = self.code[offset];
         let instruction: Option<Opcode> = FromPrimitive::from_u8(byte);
 
         match instruction {
@@ -143,7 +145,7 @@ impl Chunk {
 //
 // Token.
 //
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum TokenKind {
     // Single-character tokens.
     LeftParen,
@@ -192,6 +194,7 @@ enum TokenKind {
     Eof,
 }
 
+#[derive(Clone, Copy)]
 struct Token<'a> {
     kind: TokenKind,
     start: usize,
@@ -213,6 +216,10 @@ impl<'a> Token<'a> {
             line,
             source,
         }
+    }
+
+    fn dummy() -> Self {
+        Token::new(TokenKind::Eof, 0, 0, 0, "")
     }
 }
 
@@ -265,7 +272,7 @@ impl<'a> Scanner<'a> {
     }
 
     // Scan the next token.
-    fn scan_token(&mut self) -> Token {
+    fn scan_token(&mut self) -> Token<'a> {
         self.skip_whitespace();
         self.start = self.current;
 
@@ -360,18 +367,18 @@ impl<'a> Scanner<'a> {
     }
 
     // Create a new token of given kind.
-    fn make_token(&self, tty: TokenKind) -> Token {
+    fn make_token(&self, tty: TokenKind) -> Token<'a> {
         Token::new(
             tty,
             self.start,
             self.current - self.start,
             self.line,
-            &self.source,
+            self.source,
         )
     }
 
     // Create a new error token with the specific message.
-    fn error_token(&self, message: &'static str) -> Token {
+    fn error_token(&self, message: &'static str) -> Token<'a> {
         Token {
             kind: TokenKind::Error,
             start: self.start,
@@ -381,7 +388,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn string(&mut self) -> Token<'_> {
+    fn string(&mut self) -> Token<'a> {
         while self.peek() != '"' && !self.is_at_end() {
             if self.peek() == '\n' {
                 self.line += 1;
@@ -397,7 +404,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn number(&mut self) -> Token<'_> {
+    fn number(&mut self) -> Token<'a> {
         while self.peek().is_ascii_digit() {
             _ = self.advance();
         }
@@ -414,7 +421,7 @@ impl<'a> Scanner<'a> {
         self.make_token(TokenKind::Number)
     }
 
-    fn identifer(&mut self) -> Token<'_> {
+    fn identifer(&mut self) -> Token<'a> {
         while self.peek().is_ascii_alphanumeric() || self.peek() == '_' {
             self.advance();
         }
@@ -456,7 +463,7 @@ impl<'a> Scanner<'a> {
             _ => {}
         }
 
-        return TokenKind::Identifier;
+        TokenKind::Identifier
     }
 
     fn check_keyword(&self, offset: usize, expected: &str, kind: TokenKind) -> TokenKind {
@@ -474,35 +481,133 @@ impl<'a> Scanner<'a> {
 }
 
 //
-// Compiler.
+// The parser.
 //
-struct Compiler {}
+struct Parser<'a> {
+    scanner: Scanner<'a>,
+    current: Token<'a>,
+    previous: Token<'a>,
+    had_error: bool,
 
-impl Compiler {
-    fn new() -> Self {
-        Self {}
+    // Flag for sane error reporting.
+    // Resync the state of the parser.
+    panic: bool,
+}
+
+impl<'a> Parser<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            scanner: Scanner::new(source),
+            current: Token::dummy(),
+            previous: Token::dummy(),
+            had_error: false,
+            panic: false,
+        }
     }
 
-    fn compile(&self, source: &str) {
-        let mut scanner = Scanner::new(&source);
-        let mut line: i32 = -1;
+    fn advance(&mut self) {
+        self.previous = self.current;
+
         loop {
-            let token = scanner.scan_token();
+            self.current = self.scanner.scan_token();
+            // if self.current.kind != TokenKind::Error {
+            //     break;
+            // }
 
-            if token.line != (line as usize) {
-                print!("{:4} ", token.line);
-                line = token.line as i32;
-            } else {
-                print!("   | ");
-            }
-
-            println!("{:2} '{}'", token.kind.clone() as u32, token.lexeme());
-            io::stdout().flush().unwrap();
-
-            if token.kind == TokenKind::Eof {
-                break;
-            }
+            // self.report_error_at_current(self.current.lexeme());
         }
+    }
+
+    fn expression(&self) {
+        todo!()
+    }
+
+    fn consume(&mut self, kind: TokenKind, message: &str) {
+        let got_expected = self.current.kind == kind;
+
+        if got_expected {
+            self.advance();
+        } else {
+            self.report_error_at_current(message);
+        }
+    }
+
+    fn report_error_at(&mut self, token: Token, message: &str) {
+        if self.panic {
+            return;
+        }
+
+        self.panic = true;
+
+        eprint!("[line {}] Error", token.line);
+
+        if token.kind == TokenKind::Eof {
+            eprint!(" at end");
+        } else if token.kind == TokenKind::Error {
+            // Do nothing.
+        } else {
+            eprint!(" at {}", token.lexeme());
+        }
+
+        // Print error message
+        eprintln!(": {}", message);
+
+        self.had_error = true;
+    }
+
+    fn report_error_at_current(&mut self, message: &str) {
+        let token = self.current;
+        self.report_error_at(token, message);
+    }
+
+    fn report_error(&mut self, message: &str) {
+        let token = self.previous;
+        self.report_error_at(token, message);
+    }
+}
+
+//
+// The compiler.
+//
+struct Compiler<'a> {
+    parser: Parser<'a>,
+    chunk: Chunk,
+}
+
+impl<'a> Compiler<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            parser: Parser::new(source),
+            chunk: Chunk::new(),
+        }
+    }
+
+    fn compile(&mut self) -> Option<Chunk> {
+        self.parser.advance();
+        self.parser.expression();
+        self.parser
+            .consume(TokenKind::Eof, "Expected end of expression.");
+
+        if self.parser.had_error {
+            None
+        } else {
+            let mut chunk = Chunk::new();
+            self.chunk = mem::take(&mut chunk);
+            Some(chunk)
+        }
+    }
+
+    fn emit_byte(&mut self, byte: u8) {
+        self.chunk.write(byte, self.parser.previous.line as i32);
+    }
+
+    fn emit_bytes(&mut self, byte1: u8, byte2: u8) {
+        self.emit_byte(byte1);
+        self.emit_byte(byte2);
+    }
+
+    fn end(&mut self) {
+        self.emit_byte(Opcode::Return as u8);
     }
 }
 
@@ -533,9 +638,9 @@ struct VM {
 
 impl VM {
     // Return a new virtual machine instance.
-    fn new() -> Self {
+    fn new(chunk: Chunk) -> Self {
         Self {
-            chunk: Chunk::new(),
+            chunk,
             ip: 0,
             stack: Vec::with_capacity(STACK_MAX),
         }
@@ -554,9 +659,19 @@ impl VM {
     // Interpret source code. Return Interpret result which symbolizes the success state.
     #[allow(unused_variables)]
     fn interpret(&mut self, source: &str) -> InterpretResult {
-        let compiler = Compiler::new();
-        compiler.compile(source);
-        InterpretResult::Ok
+        let mut compiler = Compiler::new(source);
+
+        let chunk = compiler.compile();
+
+        if chunk.is_none() {
+            return InterpretResult::CompileError;
+        }
+
+        // Take the compiled chunk.
+        self.chunk = chunk.unwrap();
+        self.ip = 0;
+
+        self.run(false)
     }
 
     // Interpret the next byte as an opcode.
@@ -633,11 +748,11 @@ impl VM {
 // Main driver.
 //
 fn main() -> ExitCode {
-    let args = Args::parse();
-    let vm = VM::new();
+    let args = <Args as clap::Parser>::parse();
+    let vm = VM::new(Chunk::new());
 
     if let Some(path) = args.path.as_deref() {
-        run_file(vm, &path)
+        run_file(vm, path)
     } else {
         run_repl(vm)
     }
@@ -674,9 +789,8 @@ fn run_repl(mut vm: VM) -> ExitCode {
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         let line = line.unwrap();
-        match vm.interpret(&line) {
-            InterpretResult::CompileError => return ExitCode::from(65),
-            _ => {}
+        if let InterpretResult::CompileError = vm.interpret(&line) {
+            return ExitCode::from(65);
         }
         print!("> ");
         io::stdout().flush().unwrap();
@@ -694,7 +808,7 @@ mod tests {
     #[test]
     fn test_scanner_basic() {
         let source = "(";
-        let mut scanner = Scanner::new(source.to_string());
+        let mut scanner = Scanner::new(source);
 
         let token = scanner.scan_token();
 
@@ -704,10 +818,10 @@ mod tests {
     #[test]
     fn test_scanner() {
         let source = "({;,.-+/*})";
-        let mut scanner = Scanner::new(source.to_string());
+        let mut scanner = Scanner::new(source);
 
         let mut idx = 0;
-        let expected = vec![
+        let expected = [
             TokenKind::LeftParen,
             TokenKind::LeftBrace,
             TokenKind::Semicolon,
