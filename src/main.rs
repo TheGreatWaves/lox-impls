@@ -88,9 +88,9 @@ impl Chunk {
     }
 
     /// Push a constant into the constant vector, return the index which the constant resides.
-    pub fn add_constant(&mut self, value: Value) -> u8 {
+    pub fn add_constant(&mut self, value: Value) -> u16 {
         self.constants.push(value);
-        (self.constants.len() - 1) as u8
+        (self.constants.len() - 1) as u16
     }
 
     /// Print the constant's handle and it's value. Returns the next offset.
@@ -521,10 +521,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expression(&self) {
-        todo!()
-    }
-
     fn consume(&mut self, kind: TokenKind, message: &str) {
         let got_expected = self.current.kind == kind;
 
@@ -588,7 +584,7 @@ impl<'a> Compiler<'a> {
 
     fn compile(&mut self) -> Option<Chunk> {
         self.parser.advance();
-        self.parser.expression();
+        self.expression();
         self.parser
             .consume(TokenKind::Eof, "Expected end of expression.");
 
@@ -615,6 +611,37 @@ impl<'a> Compiler<'a> {
     #[allow(dead_code)]
     fn end(&mut self) {
         self.emit_byte(Opcode::Return as u8);
+    }
+
+    fn expression(&self) {}
+
+    #[allow(dead_code)]
+    // Convert lexeme into numerical value, then push the value into the constant array.
+    fn number(&mut self) {
+        let value: f32 = self.parser.previous.lexeme().parse::<f32>().unwrap();
+        self.emit_constant(value);
+    }
+
+    // Emit constant pushes two things onto the stack.
+    // - Opcode::Constant
+    // - The index which the constant lives in the constant array.
+    #[allow(dead_code)]
+    fn emit_constant(&mut self, value: f32) {
+        let constant = self.make_constant(value);
+        self.emit_bytes(Opcode::Constant as u8, constant);
+    }
+
+    // Creates a new constant and return the index which it lives inside the value array.
+    #[allow(dead_code)]
+    fn make_constant(&mut self, value: f32) -> u8 {
+        let constant = self.chunk.add_constant(value);
+
+        if constant > std::u8::MAX as u16 {
+            self.parser.report_error("Too many constants in one chunk.");
+            0
+        } else {
+            constant as u8
+        }
     }
 }
 
