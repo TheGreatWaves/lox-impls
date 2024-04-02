@@ -48,6 +48,23 @@ pub enum Opcode {
     Return,
 }
 
+// Precedence table. From lowest to highest.
+#[derive(FromPrimitive, Clone, Copy)]
+#[repr(u8)]
+pub enum Precedence {
+    None = 1,
+    Assignment, // =
+    Or,         // or
+    And,        // and
+    Equality,   // == !=
+    Comparison, // < > <= >=
+    Term,       // + -
+    Factor,     // * /
+    Unary,      // ! -
+    Call,       // . ()
+    Primary,
+}
+
 /// A chunk is a sequence of bytecode.
 #[derive(Default)]
 pub struct Chunk {
@@ -490,6 +507,7 @@ struct Parser<'a> {
     current: Token<'a>,
     previous: Token<'a>,
     had_error: bool,
+    chunk: Chunk,
 
     // Flag for sane error reporting.
     // Resync the state of the parser.
@@ -504,6 +522,7 @@ impl<'a> Parser<'a> {
             previous: Token::dummy(),
             had_error: false,
             panic: false,
+            chunk: Chunk::new(),
         }
     }
 
@@ -564,42 +583,14 @@ impl<'a> Parser<'a> {
         let token = self.previous;
         self.report_error_at(token, message);
     }
-}
-
-//
-// The compiler.
-//
-struct Compiler<'a> {
-    parser: Parser<'a>,
-    chunk: Chunk,
-}
-
-impl<'a> Compiler<'a> {
-    fn new(source: &'a str) -> Self {
-        Self {
-            parser: Parser::new(source),
-            chunk: Chunk::new(),
-        }
-    }
-
-    fn compile(&mut self) -> Option<Chunk> {
-        self.parser.advance();
-        self.expression();
-        self.parser
-            .consume(TokenKind::Eof, "Expected end of expression.");
-
-        if self.parser.had_error {
-            None
-        } else {
-            let mut chunk = Chunk::new();
-            self.chunk = mem::take(&mut chunk);
-            Some(chunk)
-        }
-    }
 
     #[allow(dead_code)]
     fn emit_byte(&mut self, byte: u8) {
-        self.chunk.write(byte, self.parser.previous.line as i32);
+        self.chunk.write(byte, self.previous.line as i32);
+    }
+
+    fn emit_opcode(&mut self, opcode: Opcode) {
+        self.emit_byte(opcode as u8);
     }
 
     #[allow(dead_code)]
@@ -613,13 +604,50 @@ impl<'a> Compiler<'a> {
         self.emit_byte(Opcode::Return as u8);
     }
 
-    fn expression(&self) {}
+    fn expression(&mut self) {
+        self.parse_precedence(Precedence::Assignment);
+    }
 
     #[allow(dead_code)]
     // Convert lexeme into numerical value, then push the value into the constant array.
     fn number(&mut self) {
-        let value: f32 = self.parser.previous.lexeme().parse::<f32>().unwrap();
+        let value: f32 = self.previous.lexeme().parse::<f32>().unwrap();
         self.emit_constant(value);
+    }
+
+    // Note: This function assumes that the '(' has already been consumed.
+    fn grouping(&mut self) {
+        self.expression();
+        self.consume(TokenKind::RightParen, "Expect ')' after expression.");
+    }
+
+    fn unary(&mut self) {
+        let token_type: TokenKind = self.previous.kind;
+
+        // Collect / compile the operand.
+        self.parse_precedence(Precedence::Unary);
+
+        // Emit the instruction based on the token type.
+        match token_type {
+            TokenKind::Minus => self.emit_opcode(Opcode::Negate),
+            _ => {} // Should be unreachable.
+        }
+    }
+
+    fn binary(&mut self) {
+        let operator_type = self.previous.kind;
+
+        let rule = self.get_rule(operator_type);
+
+        self.parse_precedence(Precedence::from_u8(rule.precedence as u8 + 1).unwrap());
+
+        match operator_type {
+            TokenKind::Plus => self.emit_opcode(Opcode::Add),
+            TokenKind::Minus => self.emit_opcode(Opcode::Subtract),
+            TokenKind::Star => self.emit_opcode(Opcode::Multiply),
+            TokenKind::Slash => self.emit_opcode(Opcode::Divide),
+            _ => unreachable!(),
+        }
     }
 
     // Emit constant pushes two things onto the stack.
@@ -637,10 +665,147 @@ impl<'a> Compiler<'a> {
         let constant = self.chunk.add_constant(value);
 
         if constant > std::u8::MAX as u16 {
-            self.parser.report_error("Too many constants in one chunk.");
+            self.report_error("Too many constants in one chunk.");
             0
         } else {
             constant as u8
+        }
+    }
+
+    fn get_rule(&mut self, operator_type: TokenKind) -> ParseRule {
+        let empty_rule = ParseRule {
+            prefix: None,
+            infix: None,
+            precedence: Precedence::None,
+        };
+        match operator_type {
+            TokenKind::LeftParen => ParseRule {
+                prefix: Some(Box::new(|this| this.grouping())),
+                precedence: Precedence::None,
+                ..empty_rule
+            },
+            TokenKind::RightParen => empty_rule,
+            TokenKind::LeftBrace => empty_rule,
+            TokenKind::RightBrace => empty_rule,
+            TokenKind::Comma => empty_rule,
+            TokenKind::Dot => empty_rule,
+            TokenKind::Minus => ParseRule {
+                prefix: Some(Box::new(|this| this.unary())),
+                infix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Term,
+            },
+            TokenKind::Plus => ParseRule {
+                infix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Term,
+                ..empty_rule
+            },
+            TokenKind::Semicolon => empty_rule,
+            TokenKind::Slash => ParseRule {
+                infix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Factor,
+                ..empty_rule
+            },
+            TokenKind::Star => ParseRule {
+                infix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Factor,
+                ..empty_rule
+            },
+            TokenKind::Bang => empty_rule,
+            TokenKind::BangEqual => empty_rule,
+            TokenKind::Equal => empty_rule,
+            TokenKind::EqualEqual => empty_rule,
+            TokenKind::Greater => empty_rule,
+            TokenKind::GreaterEqual => empty_rule,
+            TokenKind::Less => empty_rule,
+            TokenKind::LessEqual => empty_rule,
+            TokenKind::Identifier => empty_rule,
+            TokenKind::String => empty_rule,
+            TokenKind::Number => ParseRule {
+                prefix: Some(Box::new(|this| this.number())),
+                ..empty_rule
+            },
+            TokenKind::And => empty_rule,
+            TokenKind::Class => empty_rule,
+            TokenKind::Else => empty_rule,
+            TokenKind::False => empty_rule,
+            TokenKind::For => empty_rule,
+            TokenKind::Fun => empty_rule,
+            TokenKind::If => empty_rule,
+            TokenKind::Nil => empty_rule,
+            TokenKind::Or => empty_rule,
+            TokenKind::Print => empty_rule,
+            TokenKind::Return => empty_rule,
+            TokenKind::Super => empty_rule,
+            TokenKind::This => empty_rule,
+            TokenKind::True => empty_rule,
+            TokenKind::Var => empty_rule,
+            TokenKind::While => empty_rule,
+            TokenKind::Error => empty_rule,
+            TokenKind::Eof => empty_rule,
+        }
+    }
+
+    fn parse_precedence(&mut self, precedence: Precedence) {
+        self.advance();
+
+        // Retrieve the prefix rule for the given token kind.
+        // We expect this to return a valid rule because if it
+        // does not then we have an incorrect first token.
+        // For instance, an expression can not start with 'else' or '}'.
+        let prefix_rule = self.get_rule(self.previous.kind).prefix;
+
+        if let Some(rule) = prefix_rule {
+            rule(self);
+        } else {
+            self.report_error("Expect expression.");
+            return;
+        }
+
+        while (precedence as u8) <= (self.get_rule(self.current.kind).precedence as u8) {
+            self.advance();
+            let infix_rule = self.get_rule(self.previous.kind).infix.unwrap();
+            infix_rule(self);
+        }
+    }
+}
+
+type ParseFn = Box<dyn Fn(&mut Parser)>;
+
+//
+// Parse rule.
+//
+struct ParseRule {
+    prefix: Option<ParseFn>,
+    infix: Option<ParseFn>,
+    precedence: Precedence,
+}
+
+//
+// The compiler.
+//
+struct Compiler<'a> {
+    parser: Parser<'a>,
+}
+
+impl<'a> Compiler<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            parser: Parser::new(source),
+        }
+    }
+
+    fn compile(&mut self) -> Option<Chunk> {
+        self.parser.advance();
+        self.parser.expression();
+        self.parser
+            .consume(TokenKind::Eof, "Expected end of expression.");
+
+        if self.parser.had_error {
+            None
+        } else {
+            let mut chunk = Chunk::new();
+            self.parser.chunk = mem::take(&mut chunk);
+            Some(chunk)
         }
     }
 }
