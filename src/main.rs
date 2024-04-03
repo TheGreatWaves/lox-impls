@@ -135,7 +135,7 @@ impl Chunk {
 
         match instruction {
             Some(Opcode::Constant) => self.constant_instruction("OP_CONSTANT", offset),
-            Some(Opcode::Add) => self.simple_instruction("OP_CONSTANT", offset),
+            Some(Opcode::Add) => self.simple_instruction("OP_ADD", offset),
             Some(Opcode::Subtract) => self.simple_instruction("OP_SUBTRACT", offset),
             Some(Opcode::Multiply) => self.simple_instruction("OP_MULTIPLY", offset),
             Some(Opcode::Divide) => self.simple_instruction("OP_DIVIDE", offset),
@@ -601,7 +601,13 @@ impl<'a> Parser<'a> {
 
     #[allow(dead_code)]
     fn end(&mut self) {
-        self.emit_byte(Opcode::Return as u8);
+        self.emit_opcode(Opcode::Return);
+
+        if cfg!(debug_assetions) {
+            if !self.had_error {
+                self.chunk.disassemble_chunk("code");
+            }
+        }
     }
 
     fn expression(&mut self) {
@@ -799,13 +805,12 @@ impl<'a> Compiler<'a> {
         self.parser.expression();
         self.parser
             .consume(TokenKind::Eof, "Expected end of expression.");
+        self.parser.end();
 
         if self.parser.had_error {
             None
         } else {
-            let mut chunk = Chunk::new();
-            self.parser.chunk = mem::take(&mut chunk);
-            Some(chunk)
+            Some(mem::take(&mut self.parser.chunk))
         }
     }
 }
@@ -868,6 +873,7 @@ impl VM {
 
         // Take the compiled chunk.
         self.chunk = chunk.unwrap();
+
         self.ip = 0;
 
         self.run(false)
@@ -985,14 +991,18 @@ fn run_repl(mut vm: VM) -> ExitCode {
     let _ = vm;
     print!("> ");
     io::stdout().flush().unwrap();
-    let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        let line = line.unwrap();
-        if let InterpretResult::CompileError = vm.interpret(&line) {
-            return ExitCode::from(65);
+
+    'l: loop {
+        let stdin = io::stdin();
+        for line in stdin.lock().lines() {
+            let line = line.unwrap();
+            if let InterpretResult::CompileError = vm.interpret(&line) {
+                dbg!("breaking");
+                break 'l;
+            }
+            print!("> ");
+            io::stdout().flush().unwrap();
         }
-        print!("> ");
-        io::stdout().flush().unwrap();
     }
     ExitCode::SUCCESS
 }
