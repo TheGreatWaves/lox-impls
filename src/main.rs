@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     io::{self, BufRead, Write},
     mem,
     process::ExitCode,
@@ -25,10 +26,62 @@ use num_traits::FromPrimitive;
 //
 // Value.
 //
-type Value = f32;
+#[derive(Clone, Copy)]
+enum Value {
+    Bool(bool),
+    Nil,
+    Number(f32),
+}
 
-pub fn print_value(value: &Value) {
-    print!("{}", value);
+impl Value {
+    #[allow(dead_code)]
+    fn is_bool(&self) -> bool {
+        matches!(*self, Value::Bool(_))
+    }
+
+    #[allow(dead_code)]
+    fn is_number(&self) -> bool {
+        matches!(*self, Value::Number(_))
+    }
+
+    #[allow(dead_code)]
+    fn is_nil(&self) -> bool {
+        matches!(*self, Value::Nil)
+    }
+
+    #[allow(dead_code)]
+    fn as_bool(&self) -> bool {
+        match *self {
+            Value::Bool(value) => value,
+            _ => unreachable!(),
+        }
+    }
+
+    fn as_number(&self) -> f32 {
+        match *self {
+            Value::Number(value) => value,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Value::Bool(v) => write!(f, "{}", v),
+            Value::Nil => write!(f, "nil"),
+            Value::Number(v) => write!(f, "{}", v),
+        }
+    }
+}
+
+fn print_value(value: &Value) {
+    match value {
+        Value::Bool(v) => println!("{}", v),
+        Value::Nil => println!("nil"),
+        Value::Number(v) => println!("{}", v),
+    }
 }
 
 //
@@ -40,6 +93,9 @@ pub fn print_value(value: &Value) {
 #[repr(u8)]
 pub enum Opcode {
     Constant = 1,
+    Nil,   // These three value area added here because it's better for performance.
+    True,  // By doing so, we don't need to create another look up table,
+    False, // and we can save an additional byte (no need for Opcode::Constant).
     Add,
     Subtract,
     Multiply,
@@ -71,7 +127,7 @@ pub struct Chunk {
     /// The list of bytecode which represents the program.
     pub code: Vec<u8>,
     /// The list of constants declared.
-    pub constants: Vec<Value>,
+    constants: Vec<Value>,
     /// The line numbers for each bytecode.
     pub lines: Vec<i32>,
 }
@@ -105,7 +161,7 @@ impl Chunk {
     }
 
     /// Push a constant into the constant vector, return the index which the constant resides.
-    pub fn add_constant(&mut self, value: Value) -> u16 {
+    fn add_constant(&mut self, value: Value) -> u16 {
         self.constants.push(value);
         (self.constants.len() - 1) as u16
     }
@@ -134,6 +190,9 @@ impl Chunk {
         let instruction: Option<Opcode> = FromPrimitive::from_u8(byte);
 
         match instruction {
+            Some(Opcode::True) => self.simple_instruction("OP_TRUE", offset),
+            Some(Opcode::False) => self.simple_instruction("OP_FALSE", offset),
+            Some(Opcode::Nil) => self.simple_instruction("OP_NIL", offset),
             Some(Opcode::Constant) => self.constant_instruction("OP_CONSTANT", offset),
             Some(Opcode::Add) => self.simple_instruction("OP_ADD", offset),
             Some(Opcode::Subtract) => self.simple_instruction("OP_SUBTRACT", offset),
@@ -455,7 +514,7 @@ impl<'a> Scanner<'a> {
             'f' => {
                 if self.current - self.start > 1 {
                     match self.source.chars().nth(self.start + 1).unwrap() {
-                        'a' => return self.check_keyword(2, "alse", TokenKind::False),
+                        'a' => return self.check_keyword(2, "lse", TokenKind::False),
                         'o' => return self.check_keyword(2, "r", TokenKind::For),
                         'u' => return self.check_keyword(2, "n", TokenKind::Fun),
                         _ => {}
@@ -616,7 +675,7 @@ impl<'a> Parser<'a> {
     // Convert lexeme into numerical value, then push the value into the constant array.
     fn number(&mut self) {
         let value: f32 = self.previous.lexeme().parse::<f32>().unwrap();
-        self.emit_constant(value);
+        self.emit_constant(Value::Number(value));
     }
 
     // Note: This function assumes that the '(' has already been consumed.
@@ -657,14 +716,14 @@ impl<'a> Parser<'a> {
     // - Opcode::Constant
     // - The index which the constant lives in the constant array.
     #[allow(dead_code)]
-    fn emit_constant(&mut self, value: f32) {
+    fn emit_constant(&mut self, value: Value) {
         let constant = self.make_constant(value);
         self.emit_bytes(Opcode::Constant as u8, constant);
     }
 
     // Creates a new constant and return the index which it lives inside the value array.
     #[allow(dead_code)]
-    fn make_constant(&mut self, value: f32) -> u8 {
+    fn make_constant(&mut self, value: Value) -> u8 {
         let constant = self.chunk.add_constant(value);
 
         if constant > std::u8::MAX as u16 {
@@ -730,17 +789,26 @@ impl<'a> Parser<'a> {
             TokenKind::And => empty_rule,
             TokenKind::Class => empty_rule,
             TokenKind::Else => empty_rule,
-            TokenKind::False => empty_rule,
+            TokenKind::False => ParseRule {
+                prefix: Some(Box::new(|this| this.literal())),
+                ..empty_rule
+            },
             TokenKind::For => empty_rule,
             TokenKind::Fun => empty_rule,
             TokenKind::If => empty_rule,
-            TokenKind::Nil => empty_rule,
+            TokenKind::Nil => ParseRule {
+                prefix: Some(Box::new(|this| this.literal())),
+                ..empty_rule
+            },
             TokenKind::Or => empty_rule,
             TokenKind::Print => empty_rule,
             TokenKind::Return => empty_rule,
             TokenKind::Super => empty_rule,
             TokenKind::This => empty_rule,
-            TokenKind::True => empty_rule,
+            TokenKind::True => ParseRule {
+                prefix: Some(Box::new(|this| this.literal())),
+                ..empty_rule
+            },
             TokenKind::Var => empty_rule,
             TokenKind::While => empty_rule,
             TokenKind::Error => empty_rule,
@@ -768,6 +836,15 @@ impl<'a> Parser<'a> {
             self.advance();
             let infix_rule = self.get_rule(self.previous.kind).infix.unwrap();
             infix_rule(self);
+        }
+    }
+
+    fn literal(&mut self) {
+        match self.previous.kind {
+            TokenKind::True => self.emit_opcode(Opcode::True),
+            TokenKind::False => self.emit_opcode(Opcode::False),
+            TokenKind::Nil => self.emit_opcode(Opcode::Nil),
+            _ => unreachable!(),
         }
     }
 }
@@ -820,6 +897,7 @@ impl<'a> Compiler<'a> {
 enum InterpretResult {
     Ok,
     CompileError,
+    RuntimeError,
 }
 
 // The max size of the stack.
@@ -889,9 +967,9 @@ impl VM {
     }
 
     // Read the byte as the value used to index into the constants array.
-    fn read_constant(&mut self) -> f32 {
+    fn read_constant(&mut self) -> &Value {
         let idx = self.read_byte() as usize;
-        self.chunk.constants[idx]
+        &self.chunk.constants[idx]
     }
 
     // Main run loop. Interpret all byte code and mutate internal state.
@@ -905,36 +983,58 @@ impl VM {
                 self.chunk.disassemble_instruction(self.ip);
             }
             match self.read_instruction() {
+                Some(Opcode::False) => self.push(Value::Bool(false)),
+                Some(Opcode::True) => self.push(Value::Bool(true)),
+                Some(Opcode::Nil) => self.push(Value::Nil),
                 Some(Opcode::Constant) => {
-                    let constant = self.read_constant();
+                    let constant = *self.read_constant();
                     self.push(constant);
                 }
                 Some(Opcode::Add) => {
-                    let a = self.pop();
-                    let b = self.pop();
-                    self.push(a + b);
+                    if !self.peek(0).is_number() || !self.peek(1).is_number() {
+                        self.runtime_error("Operands must be numbers.");
+                        return InterpretResult::RuntimeError;
+                    }
+                    let a = self.pop().as_number();
+                    let b = self.pop().as_number();
+                    self.push(Value::Number(a + b));
                 }
                 Some(Opcode::Subtract) => {
-                    let a = self.pop();
-                    let b = self.pop();
-                    self.push(a - b);
+                    if !self.peek(0).is_number() || !self.peek(1).is_number() {
+                        self.runtime_error("Operands must be numbers.");
+                        return InterpretResult::RuntimeError;
+                    }
+                    let a = self.pop().as_number();
+                    let b = self.pop().as_number();
+                    self.push(Value::Number(a - b));
                 }
                 Some(Opcode::Multiply) => {
-                    let a = self.pop();
-                    let b = self.pop();
-                    self.push(a * b);
+                    if !self.peek(0).is_number() || !self.peek(1).is_number() {
+                        self.runtime_error("Operands must be numbers.");
+                        return InterpretResult::RuntimeError;
+                    }
+                    let a = self.pop().as_number();
+                    let b = self.pop().as_number();
+                    self.push(Value::Number(a * b));
                 }
                 Some(Opcode::Divide) => {
-                    let a = self.pop();
-                    let b = self.pop();
-                    self.push(a / b);
+                    if !self.peek(0).is_number() || !self.peek(1).is_number() {
+                        self.runtime_error("Operands must be numbers.");
+                        return InterpretResult::RuntimeError;
+                    }
+                    let a = self.pop().as_number();
+                    let b = self.pop().as_number();
+                    self.push(Value::Number(a / b));
                 }
                 Some(Opcode::Negate) => {
-                    let negated_value = -self.pop();
-                    self.push(negated_value);
+                    if self.peek(0).is_number() {
+                        self.runtime_error("Operand must be a number.");
+                    }
+                    let negated_value = -self.pop().as_number();
+                    self.push(Value::Number(negated_value));
                 }
                 Some(Opcode::Return) => {
-                    println!("{}", self.pop());
+                    print_value(&self.pop());
                     return InterpretResult::Ok;
                 }
                 None => {
@@ -943,6 +1043,17 @@ impl VM {
             }
         }
         InterpretResult::CompileError
+    }
+
+    fn peek(&self, offset: usize) -> &Value {
+        &self.stack[offset]
+    }
+
+    fn runtime_error(&mut self, message: &str) {
+        eprintln!("{}", message);
+        let instruction = self.ip;
+        let line = self.chunk.lines[instruction];
+        eprintln!("[line {}] in script", line);
     }
 }
 
@@ -972,6 +1083,7 @@ fn run_file(mut vm: VM, path: &str) -> ExitCode {
         match result {
             InterpretResult::CompileError => ExitCode::from(65),
             InterpretResult::Ok => ExitCode::SUCCESS,
+            InterpretResult::RuntimeError => ExitCode::from(70),
         }
     } else {
         // File not found.
