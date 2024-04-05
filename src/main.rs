@@ -603,10 +603,8 @@ impl<'a> Parser<'a> {
     fn end(&mut self) {
         self.emit_opcode(Opcode::Return);
 
-        if cfg!(debug_assetions) {
-            if !self.had_error {
-                self.chunk.disassemble_chunk("code");
-            }
+        if cfg!(debug_assetions) && !self.had_error {
+            self.chunk.disassemble_chunk("code");
         }
     }
 
@@ -634,9 +632,8 @@ impl<'a> Parser<'a> {
         self.parse_precedence(Precedence::Unary);
 
         // Emit the instruction based on the token type.
-        match token_type {
-            TokenKind::Minus => self.emit_opcode(Opcode::Negate),
-            _ => {} // Should be unreachable.
+        if TokenKind::Minus == token_type {
+            self.emit_opcode(Opcode::Negate)
         }
     }
 
