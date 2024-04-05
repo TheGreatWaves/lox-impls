@@ -63,6 +63,23 @@ impl Value {
             _ => unreachable!(),
         }
     }
+
+    fn is_falsey(&self) -> bool {
+        match *self {
+            Value::Bool(value) => !value,
+            Value::Nil => true,
+            _ => false,
+        }
+    }
+
+    fn is_equal(&self, other: &Value) -> bool {
+        match (*self, *other) {
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Nil, Value::Nil) => true,
+            (Value::Number(a), Value::Number(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Value {
@@ -96,10 +113,14 @@ pub enum Opcode {
     Nil,   // These three value area added here because it's better for performance.
     True,  // By doing so, we don't need to create another look up table,
     False, // and we can save an additional byte (no need for Opcode::Constant).
+    Equal,
+    Greater,
+    Less,
     Add,
     Subtract,
     Multiply,
     Divide,
+    Not,
     Negate,
     Return,
 }
@@ -190,6 +211,9 @@ impl Chunk {
         let instruction: Option<Opcode> = FromPrimitive::from_u8(byte);
 
         match instruction {
+            Some(Opcode::Greater) => self.simple_instruction("OP_GREATER", offset),
+            Some(Opcode::Less) => self.simple_instruction("OP_GREATER", offset),
+            Some(Opcode::Equal) => self.simple_instruction("OP_EQUAL", offset),
             Some(Opcode::True) => self.simple_instruction("OP_TRUE", offset),
             Some(Opcode::False) => self.simple_instruction("OP_FALSE", offset),
             Some(Opcode::Nil) => self.simple_instruction("OP_NIL", offset),
@@ -199,6 +223,7 @@ impl Chunk {
             Some(Opcode::Multiply) => self.simple_instruction("OP_MULTIPLY", offset),
             Some(Opcode::Divide) => self.simple_instruction("OP_DIVIDE", offset),
             Some(Opcode::Negate) => self.simple_instruction("OP_NEGATE", offset),
+            Some(Opcode::Not) => self.simple_instruction("OP_NOT", offset),
             Some(Opcode::Return) => self.simple_instruction("OP_RETURN", offset),
             None => {
                 println!("Unknown opcode {}", byte);
@@ -692,7 +717,9 @@ impl<'a> Parser<'a> {
 
         // Emit the instruction based on the token type.
         if TokenKind::Minus == token_type {
-            self.emit_opcode(Opcode::Negate)
+            self.emit_opcode(Opcode::Negate);
+        } else if token_type == TokenKind::Bang {
+            self.emit_opcode(Opcode::Not);
         }
     }
 
@@ -708,6 +735,12 @@ impl<'a> Parser<'a> {
             TokenKind::Minus => self.emit_opcode(Opcode::Subtract),
             TokenKind::Star => self.emit_opcode(Opcode::Multiply),
             TokenKind::Slash => self.emit_opcode(Opcode::Divide),
+            TokenKind::BangEqual => self.emit_bytes(Opcode::Equal as u8, Opcode::Not as u8),
+            TokenKind::EqualEqual => self.emit_opcode(Opcode::Equal),
+            TokenKind::Greater => self.emit_opcode(Opcode::Greater),
+            TokenKind::GreaterEqual => self.emit_bytes(Opcode::Less as u8, Opcode::Not as u8),
+            TokenKind::Less => self.emit_opcode(Opcode::Less),
+            TokenKind::LessEqual => self.emit_bytes(Opcode::Greater as u8, Opcode::Not as u8),
             _ => unreachable!(),
         }
     }
@@ -772,14 +805,41 @@ impl<'a> Parser<'a> {
                 precedence: Precedence::Factor,
                 ..empty_rule
             },
-            TokenKind::Bang => empty_rule,
-            TokenKind::BangEqual => empty_rule,
+            TokenKind::Bang => ParseRule {
+                prefix: Some(Box::new(|this| this.unary())),
+                ..empty_rule
+            },
+            TokenKind::BangEqual => ParseRule {
+                prefix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Equality,
+                ..empty_rule
+            },
             TokenKind::Equal => empty_rule,
-            TokenKind::EqualEqual => empty_rule,
-            TokenKind::Greater => empty_rule,
-            TokenKind::GreaterEqual => empty_rule,
-            TokenKind::Less => empty_rule,
-            TokenKind::LessEqual => empty_rule,
+            TokenKind::EqualEqual => ParseRule {
+                infix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Equality,
+                ..empty_rule
+            },
+            TokenKind::Greater => ParseRule {
+                infix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Comparison,
+                ..empty_rule
+            },
+            TokenKind::GreaterEqual => ParseRule {
+                infix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Comparison,
+                ..empty_rule
+            },
+            TokenKind::Less => ParseRule {
+                infix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Comparison,
+                ..empty_rule
+            },
+            TokenKind::LessEqual => ParseRule {
+                infix: Some(Box::new(|this| this.binary())),
+                precedence: Precedence::Comparison,
+                ..empty_rule
+            },
             TokenKind::Identifier => empty_rule,
             TokenKind::String => empty_rule,
             TokenKind::Number => ParseRule {
@@ -823,6 +883,7 @@ impl<'a> Parser<'a> {
         // We expect this to return a valid rule because if it
         // does not then we have an incorrect first token.
         // For instance, an expression can not start with 'else' or '}'.
+        // dbg!(self.previous.lexeme());
         let prefix_rule = self.get_rule(self.previous.kind).prefix;
 
         if let Some(rule) = prefix_rule {
@@ -983,6 +1044,33 @@ impl VM {
                 self.chunk.disassemble_instruction(self.ip);
             }
             match self.read_instruction() {
+                Some(Opcode::Equal) => {
+                    let b = self.pop();
+                    let a = self.pop();
+                    self.push(Value::Bool(a.is_equal(&b)))
+                }
+                Some(Opcode::Greater) => {
+                    if !self.peek(0).is_number() || !self.peek(1).is_number() {
+                        self.runtime_error("Operands must be numbers.");
+                        return InterpretResult::RuntimeError;
+                    }
+                    let b = self.pop().as_number();
+                    let a = self.pop().as_number();
+                    self.push(Value::Bool(a > b));
+                }
+                Some(Opcode::Less) => {
+                    if !self.peek(0).is_number() || !self.peek(1).is_number() {
+                        self.runtime_error("Operands must be numbers.");
+                        return InterpretResult::RuntimeError;
+                    }
+                    let b = self.pop().as_number();
+                    let a = self.pop().as_number();
+                    self.push(Value::Bool(a < b));
+                }
+                Some(Opcode::Not) => {
+                    let value = self.pop();
+                    self.push(Value::Bool(value.is_falsey()));
+                }
                 Some(Opcode::False) => self.push(Value::Bool(false)),
                 Some(Opcode::True) => self.push(Value::Bool(true)),
                 Some(Opcode::Nil) => self.push(Value::Nil),
@@ -995,8 +1083,8 @@ impl VM {
                         self.runtime_error("Operands must be numbers.");
                         return InterpretResult::RuntimeError;
                     }
-                    let a = self.pop().as_number();
                     let b = self.pop().as_number();
+                    let a = self.pop().as_number();
                     self.push(Value::Number(a + b));
                 }
                 Some(Opcode::Subtract) => {
@@ -1004,8 +1092,8 @@ impl VM {
                         self.runtime_error("Operands must be numbers.");
                         return InterpretResult::RuntimeError;
                     }
-                    let a = self.pop().as_number();
                     let b = self.pop().as_number();
+                    let a = self.pop().as_number();
                     self.push(Value::Number(a - b));
                 }
                 Some(Opcode::Multiply) => {
@@ -1106,7 +1194,6 @@ fn run_repl(mut vm: VM) -> ExitCode {
         for line in stdin.lock().lines() {
             let line = line.unwrap();
             if let InterpretResult::CompileError = vm.interpret(&line) {
-                dbg!("breaking");
                 break 'l;
             }
             print!("> ");
