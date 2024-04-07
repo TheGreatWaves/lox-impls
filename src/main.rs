@@ -95,9 +95,9 @@ impl fmt::Display for Value {
 
 fn print_value(value: &Value) {
     match value {
-        Value::Bool(v) => println!("{}", v),
-        Value::Nil => println!("nil"),
-        Value::Number(v) => println!("{}", v),
+        Value::Bool(v) => print!("{}", v),
+        Value::Nil => print!("nil"),
+        Value::Number(v) => print!("{}", v),
     }
 }
 
@@ -883,7 +883,6 @@ impl<'a> Parser<'a> {
         // We expect this to return a valid rule because if it
         // does not then we have an incorrect first token.
         // For instance, an expression can not start with 'else' or '}'.
-        // dbg!(self.previous.lexeme());
         let prefix_rule = self.get_rule(self.previous.kind).prefix;
 
         if let Some(rule) = prefix_rule {
@@ -1123,6 +1122,7 @@ impl VM {
                 }
                 Some(Opcode::Return) => {
                     print_value(&self.pop());
+                    println!();
                     return InterpretResult::Ok;
                 }
                 None => {
