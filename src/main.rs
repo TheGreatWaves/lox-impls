@@ -26,11 +26,12 @@ use num_traits::FromPrimitive;
 //
 // Value.
 //
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Value {
     Bool(bool),
     Nil,
     Number(f32),
+    String(String),
 }
 
 impl Value {
@@ -39,7 +40,6 @@ impl Value {
         matches!(*self, Value::Bool(_))
     }
 
-    #[allow(dead_code)]
     fn is_number(&self) -> bool {
         matches!(*self, Value::Number(_))
     }
@@ -47,6 +47,10 @@ impl Value {
     #[allow(dead_code)]
     fn is_nil(&self) -> bool {
         matches!(*self, Value::Nil)
+    }
+
+    fn is_string(&self) -> bool {
+        matches!(*self, Value::String(_))
     }
 
     #[allow(dead_code)]
@@ -64,6 +68,14 @@ impl Value {
         }
     }
 
+    #[allow(dead_code)]
+    fn as_string(&self) -> String {
+        match *self {
+            Value::String(ref value) => value.clone(),
+            _ => unreachable!(),
+        }
+    }
+
     fn is_falsey(&self) -> bool {
         match *self {
             Value::Bool(value) => !value,
@@ -73,10 +85,11 @@ impl Value {
     }
 
     fn is_equal(&self, other: &Value) -> bool {
-        match (*self, *other) {
+        match (self, other) {
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Nil, Value::Nil) => true,
             (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
             _ => false,
         }
     }
@@ -85,10 +98,11 @@ impl Value {
 impl fmt::Display for Value {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             Value::Bool(v) => write!(f, "{}", v),
             Value::Nil => write!(f, "nil"),
             Value::Number(v) => write!(f, "{}", v),
+            Value::String(_) => todo!(),
         }
     }
 }
@@ -98,6 +112,7 @@ fn print_value(value: &Value) {
         Value::Bool(v) => print!("{}", v),
         Value::Nil => print!("nil"),
         Value::Number(v) => print!("{}", v),
+        Value::String(ref str) => print!("{}", str),
     }
 }
 
@@ -841,7 +856,10 @@ impl<'a> Parser<'a> {
                 ..empty_rule
             },
             TokenKind::Identifier => empty_rule,
-            TokenKind::String => empty_rule,
+            TokenKind::String => ParseRule {
+                prefix: Some(Box::new(|this| this.string())),
+                ..empty_rule
+            },
             TokenKind::Number => ParseRule {
                 prefix: Some(Box::new(|this| this.number())),
                 ..empty_rule
@@ -906,6 +924,18 @@ impl<'a> Parser<'a> {
             TokenKind::Nil => self.emit_opcode(Opcode::Nil),
             _ => unreachable!(),
         }
+    }
+
+    fn string(&mut self) {
+        self.emit_constant(Value::String({
+            let mut chars = self.previous.lexeme().chars();
+
+            // Get rid of pre/postfix '"'.
+            chars.next();
+            chars.next_back();
+
+            chars.into_iter().collect::<String>()
+        }))
     }
 }
 
@@ -1038,7 +1068,7 @@ impl VM {
         while self.ip < self.chunk.code.len() {
             if debug {
                 print!("          ");
-                self.stack.iter().for_each(|&slot| print!("[ {} ]", slot));
+                self.stack.iter().for_each(|slot| print!("[ {} ]", slot));
                 println!();
                 self.chunk.disassemble_instruction(self.ip);
             }
@@ -1074,17 +1104,22 @@ impl VM {
                 Some(Opcode::True) => self.push(Value::Bool(true)),
                 Some(Opcode::Nil) => self.push(Value::Nil),
                 Some(Opcode::Constant) => {
-                    let constant = *self.read_constant();
+                    let constant = self.read_constant().clone();
                     self.push(constant);
                 }
                 Some(Opcode::Add) => {
-                    if !self.peek(0).is_number() || !self.peek(1).is_number() {
-                        self.runtime_error("Operands must be numbers.");
+                    if self.peek(0).is_string() || self.peek(1).is_string() {
+                        let b = self.pop().as_string();
+                        let a = self.pop().as_string();
+                        self.push(Value::String(a + &b));
+                    } else if self.peek(0).is_number() || self.peek(1).is_number() {
+                        let b = self.pop().as_number();
+                        let a = self.pop().as_number();
+                        self.push(Value::Number(a + b));
+                    } else {
+                        self.runtime_error("Operands must be numbers or strings.");
                         return InterpretResult::RuntimeError;
                     }
-                    let b = self.pop().as_number();
-                    let a = self.pop().as_number();
-                    self.push(Value::Number(a + b));
                 }
                 Some(Opcode::Subtract) => {
                     if !self.peek(0).is_number() || !self.peek(1).is_number() {
