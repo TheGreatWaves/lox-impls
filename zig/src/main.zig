@@ -10,7 +10,7 @@ pub fn main() !void {
         _ = gpa.deinit();
     }
 
-    var c = chunk.Chunk().init(allocator);
+    var c = chunk.Chunk.init(allocator);
     const constant_idx_1 = c.addConstant(1.2);
     const constant_idx_2 = c.addConstant(4.2);
     c.write_opcode(OpCode.constant);

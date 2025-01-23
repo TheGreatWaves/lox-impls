@@ -1,4 +1,4 @@
-const Chunk = @import("chunk.zig").Chunk();
+const Chunk = @import("chunk.zig").Chunk;
 const std = @import("std");
 const OpCode = @import("common.zig").OpCode;
 const value = @import("value.zig");
