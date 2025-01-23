@@ -19,6 +19,12 @@ fn constantInstruction(name: []const u8, chunk: *Chunk, offset: u32) u32 {
 fn disassembleInstruction(chunk: *Chunk, offset: u32) u32 {
     std.debug.print("{d:0>4} ", .{offset});
 
+    if (offset > 0 and chunk.lines[offset] == chunk.lines[offset - 1]) {
+        std.debug.print("   | ", .{});
+    } else {
+        std.debug.print("{d: >4} ", .{chunk.lines[offset]});
+    }
+
     const instruction = chunk.code[offset];
 
     switch (instruction) {
