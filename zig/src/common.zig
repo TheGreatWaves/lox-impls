@@ -2,7 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 pub const OpCode = enum {
-    op_return,
+    constant,
+    @"return",
 };
 
 // old_size commented out because it is not needed yet and the zig compiler will complain
