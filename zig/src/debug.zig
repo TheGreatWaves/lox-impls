@@ -16,14 +16,19 @@ fn constantInstruction(name: []const u8, chunk: *Chunk, offset: u32) u32 {
     return offset + 2;
 }
 
+var prev_line: u32 = 0;
+
 fn disassembleInstruction(chunk: *Chunk, offset: u32) u32 {
     std.debug.print("{d:0>4} ", .{offset});
 
-    // if (offset > 0 and chunk.lines[offset] == chunk.lines[offset - 1]) {
-    //     std.debug.print("   | ", .{});
-    // } else {
-    //     std.debug.print("{d: >4} ", .{chunk.lines[offset]});
-    // }
+    const line = chunk.getLine(offset);
+
+    if (offset > 0 and line == prev_line) {
+        std.debug.print("   | ", .{});
+    } else {
+        std.debug.print("{d: >4} ", .{line});
+        prev_line = line;
+    }
 
     const instruction = chunk.code[offset];
 

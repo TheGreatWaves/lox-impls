@@ -19,9 +19,14 @@ pub fn main() !void {
     c.write_opcode(OpCode.constant, 2);
     c.write_u32(constant_idx_2, 2);
     c.write_opcode(OpCode.@"return", 2);
-    c.write_opcode(OpCode.@"return", 2);
-    c.write_opcode(OpCode.constant, 2);
-    c.write_u32(constant_idx_2, 2);
+    c.write_opcode(OpCode.@"return", 3);
+    c.write_opcode(OpCode.constant, 4);
+    c.write_u32(constant_idx_2, 4);
+    c.write_opcode(OpCode.@"return", 5);
+    c.write_opcode(OpCode.@"return", 5);
+    c.write_opcode(OpCode.@"return", 5);
+    c.write_opcode(OpCode.@"return", 6);
+    c.write_opcode(OpCode.@"return", 6);
 
     debug.disassembleChunk(&c, "test chunk");
 

@@ -35,6 +35,18 @@ pub const Chunk = struct {
         };
     }
 
+    pub fn getLine(self: *Self, instruction_index: u32) u32 {
+        var line_idx: u32 = 1;
+        var prefix_sum = self.lines[(line_idx * 2) - 1];
+
+        while (prefix_sum <= instruction_index) {
+            line_idx += 1;
+            prefix_sum += self.lines[(line_idx * 2) - 1];
+        }
+
+        return self.lines[(line_idx * 2) - 2];
+    }
+
     fn write(self: *Self, byte: u8, line: u32) void {
         if (self.capacity < self.count + 1) {
             const old_capacity = self.capacity;
