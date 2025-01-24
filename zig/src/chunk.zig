@@ -3,12 +3,17 @@ const OpCode = @import("common.zig").OpCode;
 const Value = @import("value.zig").Value;
 const ValueArray = @import("value.zig").ValueArray;
 const mem = @import("mem.zig");
+const std = @import("std");
 
 pub const Chunk = struct {
     count: u32,
     capacity: u32,
     code: []u8,
+
+    line_count: u32,
+    line_capacity: u32,
     lines: []u32,
+    line: u32,
     constants: ValueArray,
     allocator: Allocator,
 
@@ -21,7 +26,10 @@ pub const Chunk = struct {
             .count = 0,
             .capacity = 0,
             .code = &[_]u8{},
+            .line_count = 0,
+            .line_capacity = 0,
             .lines = &[_]u32{},
+            .line = 0,
             .constants = ValueArray.init(allocator),
             .allocator = allocator,
         };
@@ -32,11 +40,23 @@ pub const Chunk = struct {
             const old_capacity = self.capacity;
             self.capacity = mem.grow_capacity(old_capacity);
             self.code = mem.grow_array(self.allocator, u8, self.code, old_capacity, self.capacity);
-            self.lines = mem.grow_array(self.allocator, u32, self.lines, old_capacity, self.capacity);
+        }
+
+        if (self.line != line) {
+            if (self.line_capacity < self.count + 2) {
+                const old_line_capacity = self.line_capacity;
+                self.line_capacity = mem.grow_capacity(old_line_capacity);
+                self.lines = mem.grow_array(self.allocator, u32, self.lines, old_line_capacity, self.line_capacity);
+            }
+            self.lines[self.line_count] = line;
+            self.lines[self.line_count + 1] = 1;
+            self.line_count += 2;
+            self.line = line;
+        } else {
+            self.lines[self.line_count - 1] += 1;
         }
 
         self.code[self.count] = byte;
-        self.lines[self.count] = line;
         self.count += 1;
     }
 
@@ -55,7 +75,7 @@ pub const Chunk = struct {
 
     pub fn free(self: *Self) void {
         mem.free_array(self.allocator, u8, self.code, self.capacity);
-        mem.free_array(self.allocator, u32, self.lines, self.capacity);
+        mem.free_array(self.allocator, u32, self.lines, self.line_capacity);
         self.constants.free();
     }
 };

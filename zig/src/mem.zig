@@ -18,8 +18,7 @@ pub fn grow_capacity(old_capacity: u32) u32 {
 }
 
 pub fn grow_array(allocator: Allocator, comptime T: type, pointer: []T, old_count: u32, new_count: u32) []T {
-    const type_size = @sizeOf(T);
-    return reallocate(allocator, T, pointer, type_size * old_count, type_size * new_count);
+    return reallocate(allocator, T, pointer, old_count, new_count);
 }
 
 pub fn free_array(allocator: Allocator, comptime T: type, pointer: []T, old_count: u32) void {

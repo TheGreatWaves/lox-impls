@@ -22,6 +22,6 @@ pub fn grow_capacity(old_capacity: u32) u32 {
 }
 
 pub fn grow_array(comptime T: type, pointer: []T, old_count: u32, new_count: u32) []T {
-    const type_size = @sizeOf(type);
+    const type_size = @sizeOf(T);
     return reallocate(T, pointer, type_size * old_count, type_size * new_count);
 }

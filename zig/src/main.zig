@@ -13,11 +13,15 @@ pub fn main() !void {
     var c = chunk.Chunk.init(allocator);
     const constant_idx_1 = c.addConstant(1.2);
     const constant_idx_2 = c.addConstant(4.2);
-    c.write_opcode(OpCode.constant, 123);
-    c.write_u32(constant_idx_1, 123);
-    c.write_opcode(OpCode.constant, 123);
-    c.write_u32(constant_idx_2, 123);
-    c.write_opcode(OpCode.@"return", 124);
+
+    c.write_opcode(OpCode.constant, 1);
+    c.write_u32(constant_idx_1, 1);
+    c.write_opcode(OpCode.constant, 2);
+    c.write_u32(constant_idx_2, 2);
+    c.write_opcode(OpCode.@"return", 2);
+    c.write_opcode(OpCode.@"return", 2);
+    c.write_opcode(OpCode.constant, 2);
+    c.write_u32(constant_idx_2, 2);
 
     debug.disassembleChunk(&c, "test chunk");
 
