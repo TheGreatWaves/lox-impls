@@ -3,6 +3,8 @@ const std = @import("std");
 const OpCode = @import("common.zig").OpCode;
 const value = @import("value.zig");
 
+pub const DEBUG = true;
+
 fn simpleInstruction(name: []const u8, offset: u32) u32 {
     std.debug.print("{s}\n", .{name});
     return offset + 1;
@@ -18,7 +20,7 @@ fn constantInstruction(name: []const u8, chunk: *Chunk, offset: u32) u32 {
 
 var prev_line: u32 = 0;
 
-fn disassembleInstruction(chunk: *Chunk, offset: u32) u32 {
+pub fn disassembleInstruction(chunk: *Chunk, offset: u32) u32 {
     std.debug.print("{d:0>4} ", .{offset});
 
     const line = chunk.getLine(offset);
