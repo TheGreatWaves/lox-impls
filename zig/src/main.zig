@@ -1,5 +1,6 @@
 const std = @import("std");
 const chunk = @import("chunk.zig");
+const vm = @import("vm.zig");
 const OpCode = @import("common.zig").OpCode;
 const debug = @import("debug.zig");
 
@@ -10,7 +11,12 @@ pub fn main() !void {
         _ = gpa.deinit();
     }
 
+    var v = vm.VM.init(allocator);
+    defer v.free();
+
     var c = chunk.Chunk.init(allocator);
+    defer c.free();
+
     const constant_idx_1 = c.addConstant(1.2);
     const constant_idx_2 = c.addConstant(4.2);
 
@@ -28,7 +34,5 @@ pub fn main() !void {
     c.write_opcode(OpCode.@"return", 6);
     c.write_opcode(OpCode.@"return", 6);
 
-    debug.disassembleChunk(&c, "test chunk");
-
-    defer c.free();
+    _ = v.interpret(&c);
 }
