@@ -11,7 +11,7 @@ pub fn main() !void {
         _ = gpa.deinit();
     }
 
-    var v = vm.VM.init(allocator);
+    var v = vm.VM.init();
     defer v.free();
 
     var c = chunk.Chunk.init(allocator);
