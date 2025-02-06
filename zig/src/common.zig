@@ -3,6 +3,11 @@ const Allocator = std.mem.Allocator;
 
 pub const OpCode = enum {
     constant,
+    add,
+    subtract,
+    multiply,
+    divide,
+    negate,
     @"return",
 };
 

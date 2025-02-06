@@ -11,6 +11,13 @@ const InterpretResult = enum {
     runtime_error,
 };
 
+const BinaryOp = enum {
+    add,
+    subtract,
+    multiply,
+    divide,
+};
+
 const STACK_MAX = 256;
 
 pub const VM = struct {
@@ -65,6 +72,25 @@ pub const VM = struct {
         self.sp = 0;
     }
 
+    fn binary_op(self: *Self, comptime binary_op_type: BinaryOp) void {
+        const b = @as(f64, self.pop());
+        const a = @as(f64, self.pop());
+        switch (binary_op_type) {
+            BinaryOp.add => {
+                self.push(a + b);
+            },
+            BinaryOp.subtract => {
+                self.push(a - b);
+            },
+            BinaryOp.multiply => {
+                self.push(a * b);
+            },
+            BinaryOp.divide => {
+                self.push(a / b);
+            },
+        }
+    }
+
     fn run(self: *Self) InterpretResult {
         while (true) {
             if (debug.DEBUG) {
@@ -89,8 +115,22 @@ pub const VM = struct {
                 @intFromEnum(OpCode.constant) => {
                     const constant = self.read_constant();
                     self.push(constant);
-                    printValue(constant);
-                    std.debug.print("\n", .{});
+                },
+                @intFromEnum(OpCode.add) => {
+                    self.binary_op(BinaryOp.add);
+                },
+                @intFromEnum(OpCode.subtract) => {
+                    self.binary_op(BinaryOp.subtract);
+                },
+                @intFromEnum(OpCode.multiply) => {
+                    self.binary_op(BinaryOp.multiply);
+                },
+                @intFromEnum(OpCode.divide) => {
+                    self.binary_op(BinaryOp.divide);
+                },
+                @intFromEnum(OpCode.negate) => {
+                    const value = self.pop();
+                    self.push(-value);
                 },
                 else => {},
             }

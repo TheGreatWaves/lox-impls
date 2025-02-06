@@ -38,6 +38,21 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: u32) u32 {
         @intFromEnum(OpCode.constant) => {
             return constantInstruction("OP_CONSTANT", chunk, offset);
         },
+        @intFromEnum(OpCode.add) => {
+            return simpleInstruction("OP_ADD", offset);
+        },
+        @intFromEnum(OpCode.subtract) => {
+            return simpleInstruction("OP_SUBTRACT", offset);
+        },
+        @intFromEnum(OpCode.multiply) => {
+            return simpleInstruction("OP_MULTIPLY", offset);
+        },
+        @intFromEnum(OpCode.divide) => {
+            return simpleInstruction("OP_DIVIDE", offset);
+        },
+        @intFromEnum(OpCode.negate) => {
+            return simpleInstruction("OP_NEGATE", offset);
+        },
         @intFromEnum(OpCode.@"return") => {
             return simpleInstruction("OP_RETURN", offset);
         },

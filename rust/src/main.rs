@@ -1188,6 +1188,7 @@ fn main() -> ExitCode {
     let vm = VM::new(Chunk::new());
 
     if let Some(path) = args.path.as_deref() {
+        dbg!(path);
         run_file(vm, path)
     } else {
         run_repl(vm)
