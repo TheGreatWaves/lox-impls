@@ -129,8 +129,7 @@ pub const VM = struct {
                     self.binary_op(BinaryOp.divide);
                 },
                 @intFromEnum(OpCode.negate) => {
-                    const value = self.pop();
-                    self.push(-value);
+                    self.stack[self.sp - 1] *= -1.0;
                 },
                 else => {},
             }
