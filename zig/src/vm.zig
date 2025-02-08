@@ -57,6 +57,10 @@ pub const VM = struct {
         return self.stack[self.sp];
     }
 
+    pub fn stack_top(self: *Self) *Value {
+        return &self.stack[self.sp - 1];
+    }
+
     fn read_byte(self: *Self) u8 {
         const byte = self.chunk.?.code[self.ip];
         self.ip += 1;
@@ -74,19 +78,18 @@ pub const VM = struct {
 
     fn binary_op(self: *Self, comptime binary_op_type: BinaryOp) void {
         const b = @as(f64, self.pop());
-        const a = @as(f64, self.pop());
         switch (binary_op_type) {
             BinaryOp.add => {
-                self.push(a + b);
+                self.stack_top().* += b;
             },
             BinaryOp.subtract => {
-                self.push(a - b);
+                self.stack_top().* -= b;
             },
             BinaryOp.multiply => {
-                self.push(a * b);
+                self.stack_top().* *= b;
             },
             BinaryOp.divide => {
-                self.push(a / b);
+                self.stack_top().* /= b;
             },
         }
     }
