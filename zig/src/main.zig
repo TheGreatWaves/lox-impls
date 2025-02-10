@@ -4,38 +4,40 @@ const vm = @import("vm.zig");
 const OpCode = @import("common.zig").OpCode;
 const debug = @import("debug.zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer {
-        _ = gpa.deinit();
+fn interpret() !void {}
+
+fn repl() !void {
+    var buffer: [1024]u8 = undefined;
+    const reader = std.io.getStdIn().reader();
+    const writer = std.io.getStdOut().writer();
+
+    while (true) {
+        try writer.print("> ", .{});
+        _ = try reader.readUntilDelimiter(&buffer, '\n');
     }
+}
+
+fn runFile(path: [*:0]const u8) void {
+    _ = path;
+}
+
+pub fn main() !void {
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // const allocator = gpa.allocator();
+    // defer gpa.deinit();
 
     var v = vm.VM.init();
     defer v.free();
 
-    var c = chunk.Chunk.init(allocator);
-    defer c.free();
+    const argv = std.os.argv;
+    const argc = argv.len;
 
-    const constant_idx_1 = c.addConstant(4.0);
-    const constant_idx_2 = c.addConstant(4.0);
-    const constant_idx_3 = c.addConstant(4.0);
-
-    c.write_opcode(OpCode.constant, 1);
-    c.write_u32(constant_idx_1, 1);
-
-    c.write_opcode(OpCode.constant, 1);
-    c.write_u32(constant_idx_2, 1);
-
-    c.write_opcode(OpCode.add, 1);
-
-    c.write_opcode(OpCode.constant, 1);
-    c.write_u32(constant_idx_3, 1);
-
-    c.write_opcode(OpCode.divide, 1);
-    c.write_opcode(OpCode.negate, 1);
-
-    c.write_opcode(OpCode.@"return", 2);
-
-    _ = v.interpret(&c);
+    if (argc == 1) {
+        try repl();
+    } else if (argc == 2) {
+        runFile(argv[1][0.. :0]);
+    } else {
+        std.debug.print("Usage: clox [path]\n", .{});
+        std.process.exit(64);
+    }
 }
