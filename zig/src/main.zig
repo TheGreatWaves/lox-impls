@@ -3,6 +3,7 @@ const chunk = @import("chunk.zig");
 const vm = @import("vm.zig");
 const OpCode = @import("common.zig").OpCode;
 const debug = @import("debug.zig");
+const Allocator = std.mem.Allocator;
 
 fn interpret() !void {}
 
@@ -19,6 +20,10 @@ fn repl() !void {
 
 fn runFile(path: [*:0]const u8) void {
     _ = path;
+}
+
+fn readFile(allocator: Allocator, path: [*:0]const u8) ![]u8 {
+    return try std.fs.cwd().readFileAlloc(allocator, path, 16384);
 }
 
 pub fn main() !void {
