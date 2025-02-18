@@ -5,7 +5,7 @@ const printValue = @import("value.zig").printValue;
 const std = @import("std");
 const debug = @import("debug.zig");
 
-const InterpretResult = enum {
+pub const InterpretResult = enum {
     ok,
     compile_error,
     runtime_error,

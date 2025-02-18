@@ -18,8 +18,13 @@ fn repl() !void {
     }
 }
 
-fn runFile(path: [*:0]const u8) void {
-    _ = path;
+fn runFile(allocator: Allocator, path: [*:0]const u8) !void {
+    const source: []u8 = try readFile(allocator, path);
+    defer allocator.free(source);
+
+    const result: vm.InterpretResult = interpret(source);
+    if (result == vm.InterpretResult.compile_error) std.process.exit(65);
+    if (result == vm.InterpretResult.runtime_error) std.process.exit(70);
 }
 
 fn readFile(allocator: Allocator, path: [*:0]const u8) ![]u8 {
@@ -27,9 +32,9 @@ fn readFile(allocator: Allocator, path: [*:0]const u8) ![]u8 {
 }
 
 pub fn main() !void {
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // const allocator = gpa.allocator();
-    // defer gpa.deinit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer gpa.deinit();
 
     var v = vm.VM.init();
     defer v.free();
@@ -40,7 +45,7 @@ pub fn main() !void {
     if (argc == 1) {
         try repl();
     } else if (argc == 2) {
-        runFile(argv[1][0.. :0]);
+        try runFile(allocator, argv[1][0.. :0]);
     } else {
         std.debug.print("Usage: clox [path]\n", .{});
         std.process.exit(64);
